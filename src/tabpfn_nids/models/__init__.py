@@ -1,0 +1,6 @@
+"""TabPFN inference, stratified chunking and the chunked ensemble.
+
+Enhancement 1 lives here: TabPFN v2 caps its in-context training set at
+10,000 samples, so larger datasets are split into stratified chunks whose
+per-chunk predictions are aggregated by weighted voting.
+"""

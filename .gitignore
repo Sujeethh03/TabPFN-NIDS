@@ -1,6 +1,12 @@
-data/nsl-kdd/
-data/unsw-nb15/
-data/cic-ids-2018/
+# Datasets: ignore all contents, but keep the directory tree via .gitkeep.
+# The '!.../**/' line re-includes directories so git descends into them;
+# without it an excluded parent hides the .gitkeep inside it.
+data/raw/**
+data/interim/**
+data/processed/**
+!data/raw/**/
+!data/interim/**/
+!data/processed/**/
 *.csv
 *.parquet
 *.zip
@@ -10,6 +16,7 @@ __pycache__/
 venv/
 .venv/
 *.egg-info/
+.pytest_cache/
 
 .ipynb_checkpoints/
 
@@ -20,3 +27,7 @@ venv/
 
 outputs/
 *.log
+
+# --- keep the directory tree in a fresh clone ---
+!.gitkeep
+!**/.gitkeep

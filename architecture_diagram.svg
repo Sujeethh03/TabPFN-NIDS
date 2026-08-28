@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1100" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1F3A68"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000000" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <rect width="900" height="1100" fill="#FFFFFF"/>
+
+  <!-- Box 1: Raw Network Data -->
+  <rect x="250" y="30" width="400" height="80" rx="10" fill="#E8EEF7" stroke="#1F3A68" stroke-width="2" filter="url(#shadow)"/>
+  <text x="450" y="65" text-anchor="middle" font-size="22" font-weight="bold" fill="#1F3A68">Raw Network Data</text>
+  <text x="450" y="92" text-anchor="middle" font-size="15" fill="#555555">NSL-KDD / UNSW-NB15 / CIC-IDS 2018</text>
+
+  <line x1="450" y1="110" x2="450" y2="145" stroke="#1F3A68" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- Box 2: Data Preprocessing -->
+  <rect x="200" y="150" width="500" height="80" rx="10" fill="#E8EEF7" stroke="#1F3A68" stroke-width="2" filter="url(#shadow)"/>
+  <text x="450" y="185" text-anchor="middle" font-size="22" font-weight="bold" fill="#1F3A68">Data Preprocessing</text>
+  <text x="450" y="212" text-anchor="middle" font-size="15" fill="#555555">Cleaning + Feature Engineering</text>
+
+  <line x1="450" y1="230" x2="450" y2="265" stroke="#1F3A68" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- Box 3: Stratified Chunking (highlighted as key contribution) -->
+  <rect x="180" y="270" width="540" height="90" rx="10" fill="#FFF4E5" stroke="#D97706" stroke-width="2.5" filter="url(#shadow)"/>
+  <text x="450" y="305" text-anchor="middle" font-size="22" font-weight="bold" fill="#B45309">Stratified Chunking</text>
+  <text x="450" y="332" text-anchor="middle" font-size="15" fill="#555555">Split into 10K-row chunks (preserves class balance)</text>
+  <text x="450" y="350" text-anchor="middle" font-size="12" font-style="italic" fill="#B45309">Enhancement 1 — overcomes TabPFN's sample limit</text>
+
+  <line x1="450" y1="360" x2="450" y2="395" stroke="#1F3A68" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- Parallel TabPFN inference — three chunks -->
+  <rect x="90" y="400" width="220" height="90" rx="10" fill="#E8EEF7" stroke="#1F3A68" stroke-width="2" filter="url(#shadow)"/>
+  <text x="200" y="435" text-anchor="middle" font-size="18" font-weight="bold" fill="#1F3A68">TabPFN v2</text>
+  <text x="200" y="460" text-anchor="middle" font-size="14" fill="#555555">Chunk 1 inference</text>
+  <text x="200" y="478" text-anchor="middle" font-size="12" fill="#888888">(≤10K samples)</text>
+
+  <rect x="340" y="400" width="220" height="90" rx="10" fill="#E8EEF7" stroke="#1F3A68" stroke-width="2" filter="url(#shadow)"/>
+  <text x="450" y="435" text-anchor="middle" font-size="18" font-weight="bold" fill="#1F3A68">TabPFN v2</text>
+  <text x="450" y="460" text-anchor="middle" font-size="14" fill="#555555">Chunk 2 inference</text>
+  <text x="450" y="478" text-anchor="middle" font-size="12" fill="#888888">(≤10K samples)</text>
+
+  <rect x="590" y="400" width="220" height="90" rx="10" fill="#E8EEF7" stroke="#1F3A68" stroke-width="2" filter="url(#shadow)"/>
+  <text x="700" y="435" text-anchor="middle" font-size="18" font-weight="bold" fill="#1F3A68">TabPFN v2</text>
+  <text x="700" y="460" text-anchor="middle" font-size="14" fill="#555555">Chunk N inference</text>
+  <text x="700" y="478" text-anchor="middle" font-size="12" fill="#888888">(≤10K samples)</text>
+
+  <!-- Merging arrows -->
+  <line x1="200" y1="490" x2="380" y2="530" stroke="#1F3A68" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="450" y1="490" x2="450" y2="530" stroke="#1F3A68" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="700" y1="490" x2="520" y2="530" stroke="#1F3A68" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- Box: Weighted Vote Aggregation -->
+  <rect x="200" y="535" width="500" height="80" rx="10" fill="#E8EEF7" stroke="#1F3A68" stroke-width="2" filter="url(#shadow)"/>
+  <text x="450" y="570" text-anchor="middle" font-size="22" font-weight="bold" fill="#1F3A68">Weighted Vote Aggregation</text>
+  <text x="450" y="597" text-anchor="middle" font-size="15" fill="#555555">Combine predictions across all chunks</text>
+
+  <line x1="450" y1="615" x2="450" y2="650" stroke="#1F3A68" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- Box: Attack / Normal Prediction -->
+  <rect x="250" y="655" width="400" height="80" rx="10" fill="#DFF5E1" stroke="#2E7D4F" stroke-width="2" filter="url(#shadow)"/>
+  <text x="450" y="690" text-anchor="middle" font-size="22" font-weight="bold" fill="#2E7D4F">Attack / Normal Prediction</text>
+  <text x="450" y="717" text-anchor="middle" font-size="15" fill="#555555">Final classification output</text>
+
+  <line x1="450" y1="735" x2="450" y2="770" stroke="#1F3A68" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- Box: Evaluation -->
+  <rect x="200" y="775" width="500" height="80" rx="10" fill="#E8EEF7" stroke="#1F3A68" stroke-width="2" filter="url(#shadow)"/>
+  <text x="450" y="810" text-anchor="middle" font-size="22" font-weight="bold" fill="#1F3A68">Evaluation</text>
+  <text x="450" y="837" text-anchor="middle" font-size="15" fill="#555555">F1 · Precision · Recall · ROC-AUC</text>
+
+  <!-- Legend -->
+  <rect x="60" y="900" width="780" height="170" rx="8" fill="#FAFAFA" stroke="#DDDDDD" stroke-width="1"/>
+  <text x="80" y="930" font-size="16" font-weight="bold" fill="#333333">Legend:</text>
+
+  <rect x="80" y="945" width="20" height="20" rx="3" fill="#E8EEF7" stroke="#1F3A68" stroke-width="2"/>
+  <text x="110" y="962" font-size="14" fill="#333333">Standard pipeline stage</text>
+
+  <rect x="80" y="975" width="20" height="20" rx="3" fill="#FFF4E5" stroke="#D97706" stroke-width="2"/>
+  <text x="110" y="992" font-size="14" fill="#333333">Enhancement 1: Chunked ensemble scales TabPFN beyond its 10K-sample limit</text>
+
+  <rect x="80" y="1005" width="20" height="20" rx="3" fill="#DFF5E1" stroke="#2E7D4F" stroke-width="2"/>
+  <text x="110" y="1022" font-size="14" fill="#333333">Final prediction</text>
+
+  <text x="80" y="1050" font-size="13" font-style="italic" fill="#666666">Enhancement 2 (feature engineering) sits inside Preprocessing. Enhancement 3 (cross-dataset test) uses different training and test datasets.</text>
+</svg>

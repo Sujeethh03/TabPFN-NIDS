@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tabpfn-nids"
+version = "0.1.0"
+description = "Scaling tabular foundation models for network intrusion detection"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Sujeeth G" }, { name = "P. Mahitha" }]
+keywords = ["tabpfn", "nids", "foundation-models", "cybersecurity", "machine-learning"]
+
+# Runtime dependencies are declared here; requirements.txt holds the exact
+# pinned freeze used for the reported results (see docs/REPRODUCIBILITY.md).
+dependencies = [
+    "tabpfn",
+    "scikit-learn",
+    "numpy",
+    "pandas",
+    "torch",
+    "matplotlib",
+    "seaborn",
+    "tqdm",
+    "pyyaml",
+    "scipy",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "jupyter"]
+
+[project.urls]
+Repository = "https://github.com/Sujeethh03/TabPFN-NIDS"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
