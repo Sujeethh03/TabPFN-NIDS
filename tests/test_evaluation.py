@@ -11,6 +11,7 @@ from tabpfn_nids.evaluation.metrics import compute_metrics
 from tabpfn_nids.evaluation.plots import (
     plot_all,
     plot_confusion_matrix,
+    plot_metrics_comparison,
     plot_precision_recall_curve,
     plot_roc_curve,
 )
@@ -178,7 +179,7 @@ def test_load_results_on_empty_directory(tmp_path: Path) -> None:
 def test_confusion_matrix_png_is_written(tmp_path: Path) -> None:
     """The heatmap renders and is a non-trivial PNG."""
     path = plot_confusion_matrix(
-        [[1995, 159], [1115, 1731]], path=tmp_path / "cm.png"
+        confusion=[[1995, 159], [1115, 1731]], output_path=tmp_path / "cm.png"
     )
     assert path.exists()
     assert path.stat().st_size > 1000
@@ -228,5 +229,49 @@ def test_degenerate_confusion_matrix_does_not_divide_by_zero(
     tmp_path: Path,
 ) -> None:
     """An all-zero row must not produce NaN percentages."""
-    path = plot_confusion_matrix([[0, 0], [5, 5]], path=tmp_path / "deg.png")
+    path = plot_confusion_matrix(
+        confusion=[[0, 0], [5, 5]], output_path=tmp_path / "deg.png"
+    )
     assert path.exists()
+
+
+def test_confusion_matrix_from_labels(tmp_path: Path) -> None:
+    """The spec's signature: (y_true, y_pred, output_path)."""
+    y_true = np.array([0, 0, 0, 1, 1, 1, 1])
+    y_pred = np.array([0, 0, 1, 1, 1, 0, 0])
+    path = plot_confusion_matrix(y_true, y_pred, tmp_path / "cm_labels.png")
+    assert path.exists() and path.stat().st_size > 1000
+
+
+def test_confusion_matrix_without_inputs_raises(tmp_path: Path) -> None:
+    """Neither labels nor a matrix is a caller error, not a blank figure."""
+    with pytest.raises(ValueError, match="needs either"):
+        plot_confusion_matrix(output_path=tmp_path / "nope.png")
+
+
+def test_metrics_comparison_bar_chart(tmp_path: Path) -> None:
+    """The grouped bar chart renders for several runs."""
+    results = {
+        "vanilla": {"accuracy": 0.77, "precision": 0.93, "recall": 0.63,
+                    "f1_score": 0.75, "roc_auc": 0.96},
+        "chunked": {"accuracy": 0.79, "precision": 0.94, "recall": 0.66,
+                    "f1_score": 0.77, "roc_auc": 0.97},
+    }
+    path = plot_metrics_comparison(results, output_path=tmp_path / "cmp.png")
+    assert path.exists() and path.stat().st_size > 1000
+
+
+def test_metrics_comparison_with_error_bars(tmp_path: Path) -> None:
+    """Standard deviations render as error bars."""
+    results = {"a": {"f1_score": 0.75}, "b": {"f1_score": 0.77}}
+    errors = {"a": {"f1_score": 0.023}, "b": {"f1_score": 0.019}}
+    path = plot_metrics_comparison(
+        results, output_path=tmp_path / "cmp_err.png", errors=errors
+    )
+    assert path.exists()
+
+
+def test_metrics_comparison_rejects_empty(tmp_path: Path) -> None:
+    """An empty comparison is a caller error."""
+    with pytest.raises(ValueError, match="at least one run"):
+        plot_metrics_comparison({}, output_path=tmp_path / "empty.png")

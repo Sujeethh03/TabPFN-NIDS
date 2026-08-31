@@ -32,7 +32,7 @@ from sklearn.model_selection import StratifiedShuffleSplit
 
 from tabpfn_nids import config
 from tabpfn_nids.data_pipeline import load_and_preprocess_nsl_kdd
-from tabpfn_nids.evaluation import compute_metrics, format_metrics
+from tabpfn_nids.evaluation import compute_metrics, format_metrics, plot_all
 from tabpfn_nids.models import TabPFNWrapper
 
 logger = logging.getLogger("run_baseline")
@@ -71,6 +71,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--device", default="auto", choices=("auto", "mps", "cpu"),
         help="Torch backend (default: auto, prefers MPS).",
+    )
+    parser.add_argument(
+        "--no-plot", action="store_true",
+        help="Skip figure generation.",
     )
     parser.add_argument(
         "--tag", default="baseline", help="Prefix for the results filename."
@@ -185,6 +189,19 @@ def main() -> int:
           f"{model.predict_seconds:.1f}s | total {runtime:.1f}s")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if not args.no_plot:
+        figures = plot_all(
+            y_test,
+            y_proba,
+            confusion=metrics["confusion_matrix"],
+            y_pred=y_pred,
+            prefix=f"{args.tag}_seed{args.seed}",
+        )
+        print("\n  figures:")
+        for name, path in figures.items():
+            print(f"    {name:<18} {path.relative_to(config.PROJECT_ROOT)}")
+
     row: dict[str, object] = {
         "timestamp": timestamp,
         "experiment": args.tag,

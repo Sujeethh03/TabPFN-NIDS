@@ -24,6 +24,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+import seaborn as sns  # noqa: E402
 from sklearn.metrics import (  # noqa: E402
     auc,
     average_precision_score,
@@ -31,13 +32,23 @@ from sklearn.metrics import (  # noqa: E402
     roc_auc_score,
     roc_curve,
 )
+from sklearn.metrics import confusion_matrix as sk_confusion_matrix  # noqa: E402
 
 from tabpfn_nids import config  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 CLASS_LABELS: tuple[str, str] = ("normal", "attack")
-FIGURE_DPI: int = 150
+FIGURE_DPI: int = 200
+
+# Metrics shown, in this order, by plot_metrics_comparison.
+COMPARISON_METRICS: tuple[str, ...] = (
+    "accuracy",
+    "precision",
+    "recall",
+    "f1_score",
+    "roc_auc",
+)
 
 
 def _resolve(path: str | Path | None, default_name: str) -> Path:
@@ -69,47 +80,71 @@ def _positive_scores(y_proba: np.ndarray) -> np.ndarray:
 
 
 def plot_confusion_matrix(
-    confusion: np.ndarray | list[list[int]],
+    y_true: np.ndarray | None = None,
+    y_pred: np.ndarray | None = None,
+    output_path: str | Path | None = None,
     title: str = "Confusion matrix",
-    path: str | Path | None = None,
+    confusion: np.ndarray | list[list[int]] | None = None,
 ) -> Path:
-    """Save a confusion-matrix heatmap annotated with counts and percentages.
+    """Save a Seaborn confusion-matrix heatmap with counts and row shares.
+
+    Each cell shows the raw count and its share of the true class, so recall
+    per class is readable straight off the diagonal -- which is the number
+    that matters on NSL-KDD, where the model's weakness is recall rather than
+    precision.
 
     Args:
-        confusion: A 2x2 matrix ordered ``[[TN, FP], [FN, TP]]``.
+        y_true: Ground-truth binary labels.
+        y_pred: Predicted binary labels.
+        output_path: Destination PNG; defaults to
+            reports/figures/confusion_matrix.png.
         title: Figure title.
-        path: Destination PNG; defaults to reports/figures/confusion_matrix.png.
+        confusion: A precomputed 2x2 matrix ``[[TN, FP], [FN, TP]]``, used in
+            place of ``y_true``/``y_pred`` when the matrix is already known.
 
     Returns:
         The path written.
-    """
-    matrix = np.asarray(confusion, dtype=float)
-    target = _resolve(path, "confusion_matrix.png")
 
-    figure, axes = plt.subplots(figsize=(5.2, 4.4))
-    image = axes.imshow(matrix, cmap="Blues")
-    figure.colorbar(image, ax=axes, fraction=0.046, pad=0.04)
+    Raises:
+        ValueError: If neither the label arrays nor a matrix are supplied.
+    """
+    if confusion is not None:
+        matrix = np.asarray(confusion, dtype=float)
+    elif y_true is not None and y_pred is not None:
+        # labels=[0, 1] keeps the matrix 2x2 even if a split holds one class.
+        matrix = sk_confusion_matrix(y_true, y_pred, labels=[0, 1]).astype(float)
+    else:
+        raise ValueError(
+            "plot_confusion_matrix needs either (y_true, y_pred) or confusion="
+        )
+
+    target = _resolve(output_path, "confusion_matrix.png")
 
     row_totals = matrix.sum(axis=1, keepdims=True)
     row_totals[row_totals == 0] = 1  # avoid 0/0 on a degenerate matrix
+    shares = 100 * matrix / row_totals
+    annotations = np.array(
+        [
+            [f"{int(matrix[i, j]):,}\n({shares[i, j]:.1f}%)" for j in range(2)]
+            for i in range(2)
+        ]
+    )
 
-    for i in range(matrix.shape[0]):
-        for j in range(matrix.shape[1]):
-            share = 100 * matrix[i, j] / row_totals[i, 0]
-            # Pick a readable text colour against the cell's shade.
-            colour = "white" if matrix[i, j] > matrix.max() / 2 else "black"
-            axes.text(
-                j,
-                i,
-                f"{int(matrix[i, j]):,}\n({share:.1f}%)",
-                ha="center",
-                va="center",
-                color=colour,
-                fontsize=11,
-            )
-
-    axes.set_xticks([0, 1], CLASS_LABELS)
-    axes.set_yticks([0, 1], CLASS_LABELS)
+    figure, axes = plt.subplots(figsize=(5.4, 4.5))
+    sns.heatmap(
+        matrix,
+        annot=annotations,
+        fmt="",
+        cmap="Blues",
+        cbar=True,
+        square=True,
+        linewidths=0.5,
+        linecolor="white",
+        xticklabels=CLASS_LABELS,
+        yticklabels=CLASS_LABELS,
+        annot_kws={"fontsize": 11},
+        ax=axes,
+    )
     axes.set_xlabel("Predicted")
     axes.set_ylabel("Actual")
     axes.set_title(title)
@@ -118,6 +153,85 @@ def plot_confusion_matrix(
     plt.close(figure)
 
     logger.info("Confusion matrix saved to %s", target)
+    return target
+
+
+def plot_metrics_comparison(
+    results: dict[str, dict[str, float]],
+    output_path: str | Path | None = None,
+    title: str = "Metric comparison across experiments",
+    errors: dict[str, dict[str, float]] | None = None,
+) -> Path:
+    """Save a grouped bar chart comparing several runs across metrics.
+
+    Args:
+        results: Mapping of run label to a metric dict, e.g.
+            ``{"baseline": {"f1_score": 0.75, ...}, "enhanced": {...}}``.
+        output_path: Destination PNG; defaults to
+            reports/figures/metrics_comparison.png.
+        title: Figure title.
+        errors: Optional matching mapping of standard deviations, drawn as
+            error bars. Without them a reader cannot tell a real difference
+            from seed-to-seed noise.
+
+    Returns:
+        The path written.
+
+    Raises:
+        ValueError: If ``results`` is empty.
+    """
+    if not results:
+        raise ValueError("plot_metrics_comparison needs at least one run")
+
+    target = _resolve(output_path, "metrics_comparison.png")
+    metrics = [m for m in COMPARISON_METRICS
+               if any(m in run for run in results.values())]
+    labels = list(results)
+
+    positions = np.arange(len(metrics))
+    bar_width = min(0.8 / len(labels), 0.35)
+    palette = sns.color_palette("colorblind", n_colors=len(labels))
+
+    figure, axes = plt.subplots(figsize=(1.9 * len(metrics) + 2, 4.8))
+    for index, label in enumerate(labels):
+        values = [results[label].get(metric, np.nan) for metric in metrics]
+        deviations = (
+            [errors.get(label, {}).get(metric, 0.0) for metric in metrics]
+            if errors
+            else None
+        )
+        offset = (index - (len(labels) - 1) / 2) * bar_width
+        bars = axes.bar(
+            positions + offset,
+            values,
+            bar_width,
+            label=label,
+            color=palette[index],
+            yerr=deviations,
+            capsize=3,
+        )
+        for bar, value in zip(bars, values):
+            if not np.isnan(value):
+                axes.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    value + 0.015,
+                    f"{value:.3f}",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                )
+
+    axes.set_xticks(positions, [m.replace("_", " ") for m in metrics])
+    axes.set_ylim(0, 1.12)
+    axes.set_ylabel("Score")
+    axes.set_title(title)
+    axes.legend(loc="lower right", framealpha=0.9)
+    axes.grid(axis="y", alpha=0.3)
+    figure.tight_layout()
+    figure.savefig(target, dpi=FIGURE_DPI)
+    plt.close(figure)
+
+    logger.info("Metric comparison saved to %s", target)
     return target
 
 
@@ -231,18 +345,20 @@ def plot_precision_recall_curve(
 def plot_all(
     y_true: np.ndarray,
     y_proba: np.ndarray,
-    confusion: np.ndarray | list[list[int]],
+    confusion: np.ndarray | list[list[int]] | None = None,
     prefix: str = "run",
     directory: Path | None = None,
+    y_pred: np.ndarray | None = None,
 ) -> dict[str, Path]:
     """Generate all three figures for one experiment run.
 
     Args:
         y_true: Ground-truth binary labels.
         y_proba: Positive-class scores, 1-D or 2-D.
-        confusion: The 2x2 confusion matrix.
+        confusion: A precomputed 2x2 confusion matrix, if available.
         prefix: Filename prefix, e.g. "baseline_seed42".
         directory: Destination directory; defaults to reports/figures/.
+        y_pred: Predicted labels, used when no matrix is supplied.
 
     Returns:
         A mapping of figure name to the path written.
@@ -250,9 +366,11 @@ def plot_all(
     target = directory or config.FIGURES_DIR
     return {
         "confusion_matrix": plot_confusion_matrix(
-            confusion,
+            y_true=y_true,
+            y_pred=y_pred,
+            confusion=confusion,
             title=f"Confusion matrix — {prefix}",
-            path=target / f"{prefix}_confusion_matrix.png",
+            output_path=target / f"{prefix}_confusion_matrix.png",
         ),
         "roc_curve": plot_roc_curve(
             y_true,
