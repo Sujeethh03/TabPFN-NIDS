@@ -25,6 +25,7 @@ dependencies = [
     "tqdm",
     "pyyaml",
     "scipy",
+    "pyarrow",   # UNSW-NB15 ships as parquet
 ]
 
 [project.optional-dependencies]
@@ -38,4 +39,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not slow'"
+markers = [
+    "slow: runs real TabPFN inference; deselected by default",
+]
