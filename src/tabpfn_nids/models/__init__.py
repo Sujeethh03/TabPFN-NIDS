@@ -13,7 +13,9 @@ from tabpfn_nids.models.chunked_ensemble import (
 )
 from tabpfn_nids.models.chunker import (
     describe_chunks,
+    make_chunks,
     n_chunks_for,
+    random_chunk,
     stratified_chunk,
 )
 from tabpfn_nids.models.tabpfn_wrapper import TabPFNWrapper
@@ -23,6 +25,8 @@ __all__ = [
     "ChunkedTabPFNEnsemble",
     "TabPFNWrapper",
     "describe_chunks",
+    "make_chunks",
     "n_chunks_for",
+    "random_chunk",
     "stratified_chunk",
 ]

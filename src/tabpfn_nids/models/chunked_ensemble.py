@@ -35,7 +35,7 @@ import numpy as np
 from tqdm.auto import tqdm
 
 from tabpfn_nids import config
-from tabpfn_nids.models.chunker import describe_chunks, stratified_chunk
+from tabpfn_nids.models.chunker import describe_chunks, make_chunks
 from tabpfn_nids.models.tabpfn_wrapper import TabPFNWrapper
 
 logger = logging.getLogger(__name__)
@@ -69,6 +69,7 @@ class ChunkedTabPFNEnsemble:
         n_estimators: int | str = "auto",
         max_chunks: int | None = None,
         predict_batch_size: int | None = 1_000,
+        stratified: bool = True,
         show_progress: bool = True,
     ) -> None:
         """Initialise the ensemble.
@@ -87,6 +88,9 @@ class ChunkedTabPFNEnsemble:
                 1,000: on MPS the allocator does not release memory between
                 chunks, and predicting 5,000 rows in one pass exhausts a 16 GB
                 M1 by the fourth chunk. None disables batching.
+            stratified: Whether chunks preserve the class balance. False
+                selects random chunking and exists only as the control arm of
+                the stratification ablation.
             show_progress: Whether to display a tqdm progress bar.
 
         Raises:
@@ -112,6 +116,7 @@ class ChunkedTabPFNEnsemble:
         self.n_estimators = n_estimators
         self.max_chunks = max_chunks
         self.predict_batch_size = predict_batch_size
+        self.stratified = stratified
         self.show_progress = show_progress
 
         self.chunks_: list[tuple[np.ndarray, np.ndarray]] | None = None
@@ -141,12 +146,13 @@ class ChunkedTabPFNEnsemble:
         X_train = np.asarray(X_train)
         y_train = np.asarray(y_train)
 
-        self.chunks_ = stratified_chunk(
+        self.chunks_ = make_chunks(
             X_train,
             y_train,
             chunk_size=self.chunk_size,
             random_state=self.random_state,
             max_chunks=self.max_chunks,
+            stratified=self.stratified,
         )
         self.classes_ = np.unique(y_train)
         self.fit_seconds = time.time() - started
@@ -315,6 +321,7 @@ class ChunkedTabPFNEnsemble:
         described: dict[str, Any] = {
             "aggregation": self.aggregation,
             "chunk_size": self.chunk_size,
+            "stratified": self.stratified,
             "n_estimators": self.n_estimators,
             "device": config.resolve_device(self.device),
             "fit_seconds": self.fit_seconds,

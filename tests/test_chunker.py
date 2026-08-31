@@ -8,7 +8,9 @@ import pytest
 from tabpfn_nids import config
 from tabpfn_nids.models.chunker import (
     describe_chunks,
+    make_chunks,
     n_chunks_for,
+    random_chunk,
     stratified_chunk,
 )
 
@@ -188,3 +190,69 @@ def test_describe_chunks_summary() -> None:
     assert summary["total_rows"] == 50_000
     assert summary["max_chunk_size"] <= 10_000
     assert summary["max_positive_rate_drift"] < BALANCE_TOLERANCE
+
+
+# --------------------------------------------------------------------------
+# Random chunking — the control arm for the stratification ablation
+# --------------------------------------------------------------------------
+
+
+def test_random_chunk_partitions_exhaustively() -> None:
+    """The random control still uses every row exactly once."""
+    X, y = make_data(50_000)
+    chunks = random_chunk(X, y, chunk_size=10_000)
+    assert len(chunks) == 5
+    assert sum(len(chunk_y) for _, chunk_y in chunks) == len(y)
+    assert all(len(chunk_y) <= 10_000 for _, chunk_y in chunks)
+
+
+def test_random_chunk_drifts_more_than_stratified() -> None:
+    """The mechanism the ablation measures: stratified drift is zero."""
+    X, y = make_data(30_000, positive_rate=0.05)
+    strat_drift = max(
+        abs(cy.mean() - y.mean())
+        for _, cy in stratified_chunk(X, y, chunk_size=10_000)
+    )
+    rand_drift = max(
+        abs(cy.mean() - y.mean())
+        for _, cy in random_chunk(X, y, chunk_size=10_000)
+    )
+    assert strat_drift < 1e-3
+    assert rand_drift > strat_drift
+
+
+def test_random_chunk_keeps_features_and_labels_aligned() -> None:
+    """Shuffling must permute X and y together."""
+    rng = np.random.default_rng(config.SEED)
+    y = rng.integers(0, 2, 400)
+    X = np.column_stack([y.astype(float), rng.normal(size=(400, 3))])
+    for chunk_X, chunk_y in random_chunk(X, y, chunk_size=100):
+        assert np.array_equal(chunk_X[:, 0].astype(int), chunk_y)
+
+
+def test_random_chunk_is_reproducible() -> None:
+    """Same seed, same partition (RULE 5)."""
+    X, y = make_data(20_000)
+    a = random_chunk(X, y, chunk_size=5_000, random_state=42)
+    b = random_chunk(X, y, chunk_size=5_000, random_state=42)
+    for (Xa, ya), (Xb, yb) in zip(a, b):
+        assert np.array_equal(Xa, Xb) and np.array_equal(ya, yb)
+
+
+def test_random_chunk_validates_input() -> None:
+    """Same validation contract as the stratified path."""
+    with pytest.raises(ValueError, match="rows but y has"):
+        random_chunk(np.zeros((10, 3)), np.zeros(9))
+    with pytest.raises(ValueError, match="empty"):
+        random_chunk(np.zeros((0, 3)), np.zeros(0))
+
+
+def test_make_chunks_dispatches_on_the_flag() -> None:
+    """make_chunks selects the stratified or random implementation."""
+    X, y = make_data(20_000, positive_rate=0.1)
+    strat = make_chunks(X, y, chunk_size=5_000, stratified=True)
+    rand = make_chunks(X, y, chunk_size=5_000, stratified=False)
+    strat_drift = max(abs(cy.mean() - y.mean()) for _, cy in strat)
+    rand_drift = max(abs(cy.mean() - y.mean()) for _, cy in rand)
+    assert strat_drift <= rand_drift
+    assert len(strat) == len(rand) == 4

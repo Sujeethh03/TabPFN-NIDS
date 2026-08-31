@@ -123,7 +123,102 @@ def stratified_chunk(
     return chunks
 
 
-def _log_chunk_balance(chunks: list[Chunk], y_full: np.ndarray) -> None:
+def random_chunk(
+    X: np.ndarray,
+    y: np.ndarray,
+    chunk_size: int = config.MAX_CONTEXT_SAMPLES,
+    random_state: int = config.SEED,
+    max_chunks: int | None = None,
+) -> list[Chunk]:
+    """Partition a dataset into chunks WITHOUT preserving class balance.
+
+    This exists as the control arm for the stratification ablation. It is not
+    a supported production path: each chunk's class balance is left to chance,
+    which is exactly the failure mode ``stratified_chunk`` avoids.
+
+    The difference is largest for rare classes. With a 46.5% positive rate and
+    9,691-row chunks the drift is small by the law of large numbers, so a
+    binary NSL-KDD comparison understates the risk; the danger case is a rare
+    attack family that lands entirely outside some chunk, leaving that chunk
+    unable to recognise it at all.
+
+    Args:
+        X: Feature matrix of shape ``(n_rows, n_features)``.
+        y: Labels of shape ``(n_rows,)``.
+        chunk_size: Maximum rows per chunk.
+        random_state: Seed for the shuffle.
+        max_chunks: If given, return at most this many chunks.
+
+    Returns:
+        A list of ``(X_chunk, y_chunk)`` tuples.
+
+    Raises:
+        ValueError: If X and y disagree on length, the input is empty, or
+            chunk_size is not positive.
+    """
+    X = np.asarray(X)
+    y = np.asarray(y)
+
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be positive, got {chunk_size}")
+    if X.shape[0] != y.shape[0]:
+        raise ValueError(f"X has {X.shape[0]} rows but y has {y.shape[0]}.")
+    if X.shape[0] == 0:
+        raise ValueError("cannot chunk an empty dataset")
+
+    n_rows = X.shape[0]
+    n_chunks = n_chunks_for(n_rows, chunk_size)
+
+    if n_chunks == 1:
+        return [(X, y)]
+
+    rng = np.random.default_rng(random_state)
+    order = rng.permutation(n_rows)
+    # array_split handles a non-divisible length by making the first chunks
+    # one row larger, so the partition stays exhaustive.
+    chunks: list[Chunk] = [
+        (X[index], y[index]) for index in np.array_split(order, n_chunks)
+    ]
+
+    if max_chunks is not None and len(chunks) > max_chunks:
+        chunks = chunks[:max_chunks]
+
+    _log_chunk_balance(chunks, y, label="random")
+    return chunks
+
+
+def make_chunks(
+    X: np.ndarray,
+    y: np.ndarray,
+    chunk_size: int = config.MAX_CONTEXT_SAMPLES,
+    random_state: int = config.SEED,
+    max_chunks: int | None = None,
+    stratified: bool = True,
+) -> list[Chunk]:
+    """Partition a dataset, stratified or not.
+
+    Args:
+        X: Feature matrix.
+        y: Labels.
+        chunk_size: Maximum rows per chunk.
+        random_state: Seed.
+        max_chunks: Optional cap on chunk count.
+        stratified: True for class-balance-preserving chunks, False for the
+            random control used by the stratification ablation.
+
+    Returns:
+        A list of ``(X_chunk, y_chunk)`` tuples.
+    """
+    chunker = stratified_chunk if stratified else random_chunk
+    return chunker(
+        X, y, chunk_size=chunk_size, random_state=random_state,
+        max_chunks=max_chunks,
+    )
+
+
+def _log_chunk_balance(
+    chunks: list[Chunk], y_full: np.ndarray, label: str = "stratified"
+) -> None:
     """Log chunk count, sizes and per-chunk class balance.
 
     Args:
@@ -136,9 +231,10 @@ def _log_chunk_balance(chunks: list[Chunk], y_full: np.ndarray) -> None:
     drift = max(abs(rate - overall) for rate in rates)
 
     logger.info(
-        "Created %d stratified chunks: sizes %d-%d, positive rate %.4f "
+        "Created %d %s chunks: sizes %d-%d, positive rate %.4f "
         "(population %.4f), max drift %.4f",
         len(chunks),
+        label,
         min(sizes),
         max(sizes),
         float(np.mean(rates)),
@@ -151,6 +247,7 @@ def _log_chunk_balance(chunks: list[Chunk], y_full: np.ndarray) -> None:
             "stratification may be degraded by very rare classes.",
             drift,
         )
+    return None
 
 
 def describe_chunks(chunks: list[Chunk]) -> dict[str, object]:
