@@ -418,7 +418,8 @@ in a notebook is what produced the CSVs.
 | Enhancement 2 — feature ablation | `scripts/run_feature_ablation.py` | §8 |
 | Context-size + stratification ablations | `scripts/run_ablation.py` | §9 |
 | Per-tag summary | `scripts/summarize_runs.py` | §10 |
-| Combined comparison table | `scripts/build_comparison_table.py` | §10 |
+| Headline three-arm table → `reports/comparison_table.md` | `scripts/generate_comparison_table.py` | §10 |
+| Per-experiment table, mean ± std → `reports/tables/comparison_table.md` | `scripts/build_comparison_table.py` | §10 |
 
 ### 5.3 Where results are saved
 

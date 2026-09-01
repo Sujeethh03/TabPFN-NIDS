@@ -130,8 +130,15 @@ python scripts/run_feature_ablation.py --seed 42 --max-chunks 3 --test-size 1000
 
 # Roll results up into the comparison table
 python scripts/summarize_runs.py --tag baseline
-python scripts/build_comparison_table.py
+python scripts/generate_comparison_table.py   # -> reports/comparison_table.{md,csv}
+python scripts/build_comparison_table.py      # -> reports/tables/comparison_table.{md,csv}
 ```
+
+The two table scripts are **not** interchangeable and write to different
+places. `generate_comparison_table.py` builds the headline three-arm table
+(vanilla / chunked ensemble / +engineered) at `reports/comparison_table.md`.
+`build_comparison_table.py` emits a per-experiment breakdown with mean ± std
+across seeds at `reports/tables/comparison_table.md`.
 
 `--n-estimators`, `--test-size` and the seed **must match across arms** or the
 comparison measures the wrong thing.
@@ -199,7 +206,8 @@ reports/
 └── figures/                            confusion matrices, ROC, PR curves
 ```
 
-`reports/comparison_table.md` is the single summary artifact. Arms that have not
+`reports/comparison_table.md` (from `generate_comparison_table.py`) is the
+headline summary artifact. Arms that have not
 been run are printed as *not run* rather than omitted.
 
 **Read the noise floor before reading any delta.** The baseline's F1 standard
