@@ -1,0 +1,4 @@
+experiment,available,n_runs,seeds,context_rows,test_rows,n_features,n_chunks,n_estimators,runtime_seconds_mean,accuracy_mean,accuracy_std,precision_mean,precision_std,recall_mean,recall_std,f1_score_mean,f1_score_std,roc_auc_mean,roc_auc_std
+Vanilla TabPFN (10K subsample),True,3,"123,2024,42",10000,5000,122,-,2,295.7733333333333,0.7652666666666667,0.02117577231964241,0.9346979733564734,0.026922224080009542,0.6317638791286015,0.02129489820731096,0.7538908873464586,0.022865532673673694,0.9555098915482546,0.003996062003598662
+Enhanced (Chunked Ensemble),False,0,,,,,,,,,,,,,,,,,
+Enhanced + Feature Engineering,False,0,,,,,,,,,,,,,,,,,

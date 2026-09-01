@@ -19,7 +19,7 @@ import tabpfn_nids
 from tabpfn_nids import config
 
 SUBPACKAGES = [
-    "tabpfn_nids.datasets",
+    "tabpfn_nids.data_pipeline",
     "tabpfn_nids.preprocessing",
     "tabpfn_nids.features",
     "tabpfn_nids.models",
