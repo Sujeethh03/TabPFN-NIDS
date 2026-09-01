@@ -2,9 +2,34 @@
 
 **Scaling Tabular Foundation Models for Network Intrusion Detection**
 
+[![Repository](https://img.shields.io/badge/GitHub-TabPFN--NIDS-181717?logo=github)](https://github.com/Sujeethh03/TabPFN-NIDS)
+[![Python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-163%20passing-success)](tests/)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Applying TabPFN v2 (Hollmann et al., *Nature* 2025) to network intrusion
 detection, and extending it past its 10,000-sample context limit with a
 stratified chunked ensemble.
+
+**Repository:** <https://github.com/Sujeethh03/TabPFN-NIDS>
+
+## Quick start
+
+With Python 3.11 and an activated virtualenv (full setup in [§1](#1-setup)):
+
+```bash
+pip install -r requirements.txt && pip install -e .
+kaggle datasets download -d hassan06/nslkdd -p data/raw/nsl-kdd --unzip
+python scripts/run_baseline.py --seed 42 --test-size 5000 --n-estimators 2
+```
+
+Writes a timestamped CSV to `reports/`. Expect **F1 ≈ 0.75, ROC-AUC ≈ 0.95**.
+Budget the runtime first — see [§3](#3-run-the-experiments); the same command
+without `--test-size` and `--n-estimators` runs for hours.
+
+For the full reproduction guide — hardware requirements, dataset acquisition,
+per-experiment expected outputs, tolerance bands and troubleshooting — see
+**[docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md)**.
 
 > **On terminology:** TabPFN takes labelled rows as in-context examples at
 > inference time, so this is *in-context learning*, not zero-shot. The term
@@ -13,7 +38,7 @@ stratified chunked ensemble.
 
 ---
 
-## Quick start
+## 1. Setup
 
 ```bash
 git clone https://github.com/Sujeethh03/TabPFN-NIDS.git
@@ -23,18 +48,185 @@ python3.11 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 pip install -e .          # required: notebooks and tests import the package by name
-
-python smoke_test.py      # verifies the environment; exits 1 on failure
 ```
 
-Then download NSL-KDD and run the baseline:
+`pip install -e .` is **not optional**. This is a src-layout project: the
+importable package is `tabpfn_nids`, living in `src/`. Without the editable
+install nothing can import it.
+
+```python
+from tabpfn_nids.data_pipeline import load_nsl_kdd     # correct
+from src.data_pipeline.loader import load_nsl_kdd      # wrong - there is no `src` package
+```
+
+If you hit `ModuleNotFoundError`, the fix is `pip install -e .`, not
+`PYTHONPATH=.`. Setting `PYTHONPATH` to the repo root makes `import src.*`
+appear to work and then breaks the moment you run from another directory.
+
+Verify the environment:
+
+```bash
+python smoke_test.py
+```
+
+Runs TabPFN on a small sklearn dataset and prints versions, device and the
+pinned checkpoint. **~14s**, or a few minutes the first time while the
+checkpoint downloads. Exits 1 on failure.
+
+```
+  python         3.11.9 (arm64)
+  torch          2.13.0
+  tabpfn         8.5.0
+  checkpoint     tabpfn-v2-classifier.ckpt
+  device         mps
+  ...
+  Accuracy       0.9649
+Smoke test PASSED. Environment is ready.
+```
+
+---
+
+## 2. Get the data
+
+Datasets are gitignored, so a fresh clone has none. NSL-KDD is the only one
+needed to reproduce every result in this repo.
 
 ```bash
 kaggle datasets download -d hassan06/nslkdd -p data/raw/nsl-kdd --unzip
-python scripts/run_baseline.py --seed 42 --test-size 5000 --n-estimators 2
 ```
 
-Takes about 3 minutes on an M1 and writes a timestamped CSV to `reports/`.
+This needs a Kaggle API token in `~/.kaggle/kaggle.json`. You can equally
+download the archive by hand — all that matters is that `KDDTrain+.txt` and
+`KDDTest+.txt` end up in `data/raw/nsl-kdd/`.
+
+Check it landed:
+
+```bash
+python -c "from tabpfn_nids.data_pipeline import load_nsl_kdd; \
+           tr, te = load_nsl_kdd(); print(tr.shape, te.shape)"
+# (125973, 43) (22544, 43)
+```
+
+See [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) §3 for the other two
+datasets and the data-quality defects in CIC-IDS-2018.
+
+---
+
+## 3. Run the experiments
+
+Every script appends a timestamped CSV to `reports/`, carrying its own
+provenance: seed, hardware, device, library versions, checkpoint and git commit.
+
+```bash
+# Baseline - vanilla TabPFN, one 10,000-row context
+python scripts/run_baseline.py --seed 42 --test-size 5000 --n-estimators 2
+
+# Enhancement 1 - stratified chunked ensemble
+python scripts/run_enhanced.py --seed 42 --test-size 5000 --n-estimators 2
+
+# Enhancement 2 - engineered-feature ablation, with/without
+python scripts/run_feature_ablation.py --seed 42 --max-chunks 3 --test-size 1000 \
+       --n-estimators 2 --max-service-flag-categories 40
+
+# Roll results up into the comparison table
+python scripts/summarize_runs.py --tag baseline
+python scripts/build_comparison_table.py
+```
+
+`--n-estimators`, `--test-size` and the seed **must match across arms** or the
+comparison measures the wrong thing.
+
+### Budget the runtime before you start
+
+Prediction cost is linear in `--test-size` and **superlinear** in context size.
+Measured on an M1, `n_estimators=2`, seconds per 1,000 test rows:
+
+| context rows | 1,000 | 2,500 | 5,000 | 10,000 |
+|---|---|---|---|---|
+| s / 1,000 test rows | 15 | 49 | 144 | **459** |
+
+So `run_baseline.py --test-size 5000` at the full 10,000-row context is a
+**~40 minute** job, not a 3-minute one. For a quick check use:
+
+```bash
+python scripts/run_baseline.py --context-size 5000 --test-size 500 --n-estimators 2
+```
+
+which finishes in about 75s. The chunked ensemble multiplies this by the chunk
+count — full 51-chunk coverage of NSL-KDD costs roughly 2.5s *per test row*.
+
+---
+
+## 4. See the results
+
+### The notebooks
+
+Four notebooks, meant to be read top to bottom. Runtimes are measured on an M1.
+
+| notebook | what it shows | runtime |
+|---|---|---|
+| [`01_reproduction.ipynb`](notebooks/01_reproduction.ipynb) | the baseline end to end: load, dataset stats, preprocessing, fit, metrics, confusion matrix | **46s** |
+| [`02_enhancement.ipynb`](notebooks/02_enhancement.ipynb) | single context vs chunked ensemble vs +engineered features, on one fixed test set | **4.4 min** |
+| [`03_ablations.ipynb`](notebooks/03_ablations.ipynb) | context-size and stratification ablations, from cached CSVs | **3s** |
+| [`04_results_summary.ipynb`](notebooks/04_results_summary.ipynb) | every result CSV, the comparison table, all figures, written findings | **4s** |
+
+```bash
+jupyter lab notebooks/01_reproduction.ipynb
+```
+
+03 and 04 re-run no inference — they only read `reports/` — so they execute in
+seconds and are safe to run anywhere. 01 and 02 call TabPFN live.
+
+Notebooks 01 and 02 run at **reduced scale** so they finish in minutes; each one
+says so at the top and prints its own numbers next to the full-scale runs of
+record. The pipeline is identical, only the row counts differ.
+
+Execute them all headlessly:
+
+```bash
+jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=3600 \
+    --inplace notebooks/0[1-4]*.ipynb
+```
+
+### The raw results
+
+```
+reports/
+├── baseline_<timestamp>_seed<N>.csv    one row per run, with full provenance
+├── feature_ablation_*.csv              Enhancement 2, with/without arms
+├── ablation_*.csv                      context-size and stratification sweeps
+├── comparison_table.{csv,md}           all arms side by side
+└── figures/                            confusion matrices, ROC, PR curves
+```
+
+`reports/comparison_table.md` is the single summary artifact. Arms that have not
+been run are printed as *not run* rather than omitted.
+
+**Read the noise floor before reading any delta.** The baseline's F1 standard
+deviation across three seeds is **0.0229**. A difference smaller than that is
+seed-to-seed variation, not an effect — the notebooks apply this rule explicitly
+rather than leaving it to the reader.
+
+---
+
+## 5. Run the tests
+
+```bash
+pytest                # fast suite, ~10s
+pytest -v             # per-test names
+pytest -m slow        # adds real TabPFN inference (minutes)
+pytest tests/test_chunker.py -v      # one module
+```
+
+Expected: **163 passed, 4 deselected**. The 4 deselected carry the `slow`
+marker — they run real TabPFN inference and are excluded from the default suite
+by `addopts = "-q -m 'not slow'"` in `pyproject.toml`. That is configuration,
+not failure.
+
+The suite covers the loader, preprocessor, chunker, ensemble, feature
+engineering, metrics, evaluation and repo structure. It also asserts the
+checkpoint pin never reverts to `"auto"` — see the warning below for why that
+matters.
 
 ---
 
@@ -80,30 +272,13 @@ tabpfn-nids/
 │   ├── evaluation/           # metrics, significance, reporter, plots
 │   └── utils/
 ├── scripts/                  # experiment runners (thin CLI wrappers)
-├── tests/                    # 152 tests
+├── notebooks/                # 01 reproduction, 02 enhancement,
+│                             # 03 ablations, 04 results summary
+├── tests/                    # 163 tests (+4 slow, deselected by default)
 ├── data/raw/                 # gitignored; .gitkeep keeps the tree
 ├── reports/                  # results CSVs, figures, tables
 └── docs/                     # REPRODUCIBILITY, CONTRIBUTIONS, FUTURE_WORK
 ```
-
-## Reproduction commands
-
-```bash
-python scripts/run_baseline.py --seed 42 --test-size 5000 --n-estimators 2
-python scripts/run_enhanced.py --seed 42 --test-size 5000 --n-estimators 2
-python scripts/run_feature_ablation.py --seed 42 --max-chunks 3 --test-size 1000 \
-       --n-estimators 2 --max-service-flag-categories 40
-python scripts/summarize_runs.py --tag baseline
-python scripts/build_comparison_table.py
-
-pytest                # fast suite
-pytest -m slow        # includes real TabPFN inference
-```
-
-`--n-estimators`, `--test-size` and the seed **must match across arms** for any
-comparison to be valid.
-
----
 
 ## Two things that will bite you
 

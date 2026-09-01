@@ -11,6 +11,10 @@ data/processed/**
 *.parquet
 *.zip
 
+# ...but results are evidence, not data. They carry provenance (seed, hardware,
+# library versions, git commit) and no filesystem paths, so they are tracked.
+!reports/**/*.csv
+
 __pycache__/
 *.pyc
 venv/
