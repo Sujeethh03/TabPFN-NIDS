@@ -6,31 +6,24 @@ only one seed was run.
 
 | Metric | Vanilla TabPFN (10K subsample) | Enhanced (Chunked Ensemble) | Enhanced + Feature Engineering |
 |---|---|---|---|
-| **accuracy** | 0.7653 ± 0.0212 | not run | not run |
-| **precision** | 0.9347 ± 0.0269 | not run | not run |
-| **recall** | 0.6318 ± 0.0213 | not run | not run |
-| **f1_score** | 0.7539 ± 0.0229 | not run | not run |
-| **roc_auc** | 0.9555 ± 0.0040 | not run | not run |
+| **accuracy** | 0.7618 ± 0.0214 | 0.7880 ± 0.0000 | 0.7610 ± 0.0000 |
+| **precision** | 0.9395 ± 0.0286 | 0.9838 ± 0.0000 | 0.9253 ± 0.0000 |
+| **recall** | 0.6219 ± 0.0233 | 0.6386 ± 0.0000 | 0.6309 ± 0.0000 |
+| **f1_score** | 0.7482 ± 0.0236 | 0.7745 ± 0.0000 | 0.7503 ± 0.0000 |
+| **roc_auc** | 0.9572 ± 0.0060 | 0.9693 ± 0.0000 | 0.9617 ± 0.0000 |
 
 ## Run settings
 
 | Setting | Vanilla TabPFN (10K subsample) | Enhanced (Chunked Ensemble) | Enhanced + Feature Engineering |
 |---|---|---|---|
-| seeds | 3 | — | — |
-| context rows | 10000 | — | — |
-| test rows | 5000 | — | — |
-| features | 122 | — | — |
-| chunks | - | — | — |
-| n_estimators | 2 | — | — |
-| runtime (s) | 295.8 | — | — |
-
-## Not yet run
-
-These arms have no results in `reports/` and are shown as *not run* rather than omitted:
-
-- Enhanced (Chunked Ensemble)
-- Enhanced + Feature Engineering
+| seeds | 6 | 1 | 1 |
+| context rows | mixed | 7413 | 29073 |
+| test rows | mixed | 500 | 1000 |
+| features | 122 | 122 | 168 |
+| chunks | - | 3 | 3 |
+| n_estimators | 2 | 2 | 2 |
+| runtime (s) | 410.7 | 279.6 | 952.8 |
 
 ## Reading the deltas
 
-The baseline's F1 standard deviation across seeds is **0.0229** (2.29 pp). A difference between arms smaller than that is within seed-to-seed noise and should not be reported as an improvement.
+The baseline's F1 standard deviation across seeds is **0.0236** (2.36 pp). A difference between arms smaller than that is within seed-to-seed noise and should not be reported as an improvement.
