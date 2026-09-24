@@ -295,8 +295,8 @@ class TestSplitting:
             "src_ip": [f"192.168.1.{i % 10}" for i in range(n)],
             "dst_ip": [f"10.0.0.{i % 5}" for i in range(n)],
             "start_time": np.sort(rng.uniform(0, 1000, n)),
-            "feature_a": rng.randn(n),
-            "feature_b": rng.randn(n),
+            "feature_a": rng.standard_normal(n),
+            "feature_b": rng.standard_normal(n),
             "label": rng.integers(0, 2, n),
         })
 

@@ -1,19 +1,48 @@
-# Datasets: ignore all contents, but keep the directory tree via .gitkeep.
-# The '!.../**/' line re-includes directories so git descends into them;
-# without it an excluded parent hides the .gitkeep inside it.
+# =========================================================
+# Datasets
+# =========================================================
+
 data/raw/**
-data/interim/**
+data/intermediate/**
 data/processed/**
+
+# Keep directory structure with .gitkeep
 !data/raw/**/
-!data/interim/**/
+!data/intermediate/**/
 !data/processed/**/
+
+# Dataset file types
 *.csv
 *.parquet
 *.zip
+*.pcap
+*.pcapng
 
-# ...but results are evidence, not data. They carry provenance (seed, hardware,
-# library versions, git commit) and no filesystem paths, so they are tracked.
+# =========================================================
+# Generated artifacts
+# =========================================================
+
+data/artifacts/**
+
+# Keep artifact directory structure if needed
+!data/artifacts/**/
+!data/artifacts/**/.gitkeep
+
+# =========================================================
+# Results
+# =========================================================
+
+outputs/
+results/
+logs/
+*.log
+
+# Keep report CSV files if they are intentionally tracked
 !reports/**/*.csv
+
+# =========================================================
+# Python
+# =========================================================
 
 __pycache__/
 *.pyc
@@ -22,16 +51,36 @@ venv/
 *.egg-info/
 .pytest_cache/
 
+# =========================================================
+# Jupyter
+# =========================================================
+
 .ipynb_checkpoints/
 
-.DS_Store
+# =========================================================
+# IDE / OS
+# =========================================================
 
 .vscode/
 .idea/
+.DS_Store
 
-outputs/
-*.log
+# =========================================================
+# Keep directory placeholders
+# =========================================================
 
-# --- keep the directory tree in a fresh clone ---
 !.gitkeep
 !**/.gitkeep
+
+
+# Local debugging / investigation scripts
+check_all_csvs.py
+check_pcap.py
+check_pcap_times.py
+find_attack_ranges.py
+test_flow_matching.py
+test_match.py
+validate_labels.py
+
+# Local backup of labeling implementation
+src/tabpfn_nids/labeling/unsw_ground_truth_backup.py
