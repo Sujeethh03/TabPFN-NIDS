@@ -127,6 +127,10 @@ def save_html_report(
         "evaluation"
     )
 
+    inference = report_data.get(
+        "inference"
+    )
+
     generated_at = report_data.get(
         "generated_at",
         datetime.now().isoformat(),
@@ -424,7 +428,28 @@ th {{
 {_table_rows(model)}
 
 </table>
+"""
 
+    if inference is not None:
+        html += f"""
+
+<h2>
+    Inference Architecture &amp; Execution
+</h2>
+
+<table>
+
+<tr>
+    <th>Property</th>
+    <th>Value</th>
+</tr>
+
+{_table_rows(inference)}
+
+</table>
+"""
+
+    html += f"""
 
 <h2>
     5. Prediction Results
@@ -519,6 +544,7 @@ def build_report_data(
     ground_truth_path=None,
     metrics=None,
     labeled_flows=None,
+    inference_meta=None,
 ):
     """Build structured data for JSON and HTML reports."""
 
@@ -673,7 +699,44 @@ def build_report_data(
 
         "evaluation":
             None,
+
+        "inference":
+            None,
     }
+
+    if inference_meta is not None:
+        rows_per_chunk = inference_meta.get("rows_per_chunk", [])
+        if isinstance(rows_per_chunk, list):
+            rows_per_chunk_str = ", ".join(str(r) for r in rows_per_chunk)
+        else:
+            rows_per_chunk_str = str(rows_per_chunk)
+
+        report_data["inference"] = {
+            "Inference mode":
+                inference_meta.get("inference_mode", "Single model"),
+            "Number of input flows":
+                inference_meta.get("num_flows", total_predictions),
+            "Number of models":
+                inference_meta.get("num_models", 1),
+            "Number of workers":
+                inference_meta.get("num_workers", 1),
+            "Chunk size":
+                inference_meta.get("max_rows_per_worker", 10000),
+            "Number of chunks":
+                inference_meta.get("num_chunks", 1),
+            "Rows per chunk":
+                rows_per_chunk_str,
+            "Ensemble method":
+                inference_meta.get("ensemble_method", "N/A"),
+            "Threshold":
+                inference_meta.get("prediction_threshold", 0.5),
+            "Models used":
+                ", ".join(inference_meta.get("models_used", ["tabpfn_binary_model"])),
+            "Total inference time (s)":
+                inference_meta.get("total_inference_seconds", 0.0),
+            "Average model inference time (s)":
+                inference_meta.get("avg_model_inference_seconds", 0.0),
+        }
 
     if (
         ground_truth_path is not None
@@ -844,6 +907,10 @@ def save_docx_report(
         "evaluation"
     )
 
+    inference = report_data.get(
+        "inference"
+    )
+
     generated_at = report_data.get(
         "generated_at",
         "N/A",
@@ -977,6 +1044,12 @@ def save_docx_report(
         "5. TabPFN Model",
         model,
     )
+
+    if inference:
+        add_table(
+            "Inference Architecture & Execution",
+            inference,
+        )
 
     # -----------------------------------------------------
     # 6. Prediction Results

@@ -13,6 +13,77 @@ stratified chunked ensemble.
 
 **Repository:** <https://github.com/Sujeethh03/TabPFN-NIDS>
 
+## New features added in this project
+
+This version of the project goes beyond a simple TabPFN baseline and adds a
+complete end-to-end intrusion detection pipeline built for real network traffic.
+The main additions are:
+
+### 1. PCAP validation and flow extraction
+
+The project can accept raw packet captures, validate them, and convert them into
+bidirectional network flows. This is handled by the PCAP and flow-building
+modules, which extract per-flow summaries such as packet counts, byte totals,
+protocols, timing, and direction. This makes the system usable on real network
+captures instead of only prebuilt tabular datasets.
+
+### 2. Domain-aware feature engineering
+
+The feature pipeline now computes ML-ready flow statistics from the extracted
+traffic, including:
+
+- basic flow metrics such as duration, packet counts, and byte totals
+- directional statistics for forward/backward traffic behavior
+- timing-based features such as inter-arrival times and burst characteristics
+- packet-length summaries and distribution statistics
+- TCP flag indicators and protocol-aware flow attributes
+
+These features capture network behavior that a vanilla tabular model would miss,
+which is especially valuable for attack detection where traffic shape is often a
+strong signal.
+
+### 3. Stratified chunked TabPFN ensemble
+
+TabPFN has a context limit of roughly 10,000 training rows. Real NIDS datasets
+are much larger, so the model is extended with a stratified chunking strategy:
+
+- the dataset is split into smaller balanced chunks
+- each chunk is treated as a separate in-context TabPFN training set
+- predictions from all chunks are aggregated into a final decision
+- chunk weights can be adjusted using confidence-based aggregation
+
+This keeps the method faithful to TabPFN while making it practical for large
+network datasets.
+
+### 4. Dynamic parallel inference for large traffic data
+
+The inference layer supports chunked prediction across large datasets and can
+combine multiple models when configured. This helps scale evaluation and reduces
+memory pressure when processing large input matrices or many flows.
+
+### 5. Ground-truth labeling and pipeline evaluation
+
+The repository also includes logic for aligning extracted flows with official
+UNSW-NB15 metadata, labeling them as benign or malicious, and validating the
+resulting dataset before model training. This allows the project to move from raw
+capture data to labeled, model-ready examples in a reproducible pipeline.
+
+### 6. End-to-end training and reporting workflow
+
+The codebase now includes a structured pipeline that moves from data validation to:
+
+- feature extraction
+- labeling
+- cleaning and preprocessing
+- train/test split and leakage checks
+- TabPFN inference
+- metric computation and result reporting
+
+This makes the project much more than a notebook experiment; it is a reusable
+network intrusion detection workflow.
+
+---
+
 ## Quick start
 
 With Python 3.11 and an activated virtualenv (full setup in [§1](#1-setup)):

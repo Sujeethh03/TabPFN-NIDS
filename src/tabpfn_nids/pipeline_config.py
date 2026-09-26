@@ -157,6 +157,18 @@ class ReproducibilityConfig:
 
 
 @dataclass
+class InferenceConfig:
+    max_rows_per_worker: int = 10_000
+    max_workers: int | None = None
+    executor_type: str = "thread"
+    probability_aggregation: str = "mean"
+    prediction_threshold: float = 0.5
+    enable_ensemble: bool = True
+    include_per_model_probabilities: bool = False
+    weights: dict[str, float] | None = None
+
+
+@dataclass
 class PipelineConfig:
     """Top-level container holding every configuration section."""
 
@@ -176,6 +188,7 @@ class PipelineConfig:
     logging: LoggingConfig
     performance: PerformanceConfig
     reproducibility: ReproducibilityConfig
+    inference: InferenceConfig = field(default_factory=InferenceConfig)
 
 
 def _resolve_paths(raw: dict[str, str]) -> PathsConfig:
@@ -231,4 +244,5 @@ def load_config(path: Path | str | None = None) -> PipelineConfig:
         logging=_build_section(LoggingConfig, raw.get("logging")),
         performance=_build_section(PerformanceConfig, raw.get("performance")),
         reproducibility=_build_section(ReproducibilityConfig, raw.get("reproducibility")),
+        inference=_build_section(InferenceConfig, raw.get("inference")),
     )

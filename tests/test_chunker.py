@@ -47,6 +47,7 @@ def make_data(n_rows: int, positive_rate: float = 0.465, n_features: int = 8):
         (10_000, 10_000, 1),  # exactly one chunk
         (10_001, 10_000, 2),  # one row over
         (20_000, 10_000, 2),
+	(20_001, 10_000, 3),
         (125_973, 10_000, 13),  # NSL-KDD training split
         (100, 25, 4),
     ],

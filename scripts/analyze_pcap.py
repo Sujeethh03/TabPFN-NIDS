@@ -56,6 +56,16 @@ from tabpfn_nids.pcap.analysis_report import (
     save_docx_report,
 )
 
+from tabpfn_nids.pipeline_config import (
+    load_config,
+)
+
+from tabpfn_nids.inference import (
+    DynamicInferenceManager,
+    ModelRegistry,
+    ModelInfo,
+)
+
 
 # =========================================================
 # Paths
@@ -349,6 +359,8 @@ def build_prediction_output(
     original_features: pd.DataFrame,
     predictions,
     probabilities,
+    inference_meta: dict | None = None,
+    per_model_probabilities: dict | None = None,
 ):
     """Build the flow-level prediction dataframe."""
 
@@ -380,6 +392,21 @@ def build_prediction_output(
             output["attack_probability"] = (
                 probabilities[:, 1]
             )
+
+    # Optional ensemble provenance columns
+    if inference_meta is not None and inference_meta.get("num_models", 1) > 1:
+        output["models_used"] = ", ".join(inference_meta.get("models_used", []))
+        output["ensemble_size"] = inference_meta.get("num_models", 1)
+        output["ensemble_method"] = inference_meta.get("ensemble_method", "Mean probability")
+        output["prediction_threshold"] = inference_meta.get("prediction_threshold", 0.5)
+
+    # Optional per-model probabilities
+    if per_model_probabilities:
+        for m_id, m_probs in per_model_probabilities.items():
+            if hasattr(m_probs, "ndim") and m_probs.ndim == 2 and m_probs.shape[1] >= 2:
+                output[f"{m_id}_attack_probability"] = m_probs[:, 1]
+            elif hasattr(m_probs, "ndim") and m_probs.ndim == 1:
+                output[f"{m_id}_attack_probability"] = m_probs
 
     return output
 
@@ -459,7 +486,7 @@ def evaluate_with_ground_truth(
     metrics = compute_metrics(
         y_true=y_true,
         y_pred=y_pred,
-        y_prob=matched_probabilities,
+        y_proba=matched_probabilities,
     )
 
     return (
@@ -577,6 +604,41 @@ def main():
         ),
     )
 
+    parser.add_argument(
+        "--max-rows-per-worker",
+        type=int,
+        default=None,
+        help="Max rows per worker chunk (default: 10000).",
+    )
+
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="Maximum parallel inference workers (default: auto).",
+    )
+
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Classification decision threshold for Attack (default: 0.5).",
+    )
+
+    parser.add_argument(
+        "--enable-ensemble",
+        action="store_true",
+        default=None,
+        help="Enable multi-model ensemble if multiple models are available.",
+    )
+
+    parser.add_argument(
+        "--include-per-model",
+        action="store_true",
+        default=False,
+        help="Include per-model probability columns in output CSV.",
+    )
+
     args = parser.parse_args()
 
     analysis_start = (
@@ -609,11 +671,55 @@ def main():
     )
 
     # -----------------------------------------------------
-    # 1. Load already-trained artifacts
+    # 1. Load already-trained artifacts & configure inference
     # -----------------------------------------------------
 
     model, scaler, feature_names = (
         load_artifacts()
+    )
+
+    try:
+        cfg = load_config()
+        inf_cfg = cfg.inference
+    except Exception as exc:
+        logger.warning("Could not load pipeline config (%s), using defaults.", exc)
+        from tabpfn_nids.pipeline_config import InferenceConfig
+        inf_cfg = InferenceConfig()
+
+    max_rows = args.max_rows_per_worker or inf_cfg.max_rows_per_worker
+    max_workers = args.max_workers if args.max_workers is not None else inf_cfg.max_workers
+    threshold = args.threshold if args.threshold is not None else inf_cfg.prediction_threshold
+    enable_ensemble = args.enable_ensemble if args.enable_ensemble is not None else inf_cfg.enable_ensemble
+    include_per_model = args.include_per_model or inf_cfg.include_per_model_probabilities
+    executor_type = inf_cfg.executor_type
+    aggregation = inf_cfg.probability_aggregation
+    weights = inf_cfg.weights
+
+    registry = ModelRegistry(
+        models_dir=ARTIFACTS_DIR / "models",
+        default_schema_path=FEATURE_SCHEMA_PATH,
+    )
+    registry.register_model(
+        ModelInfo(
+            model_id="tabpfn_binary_model",
+            model_path=MODEL_PATH,
+            schema_path=FEATURE_SCHEMA_PATH,
+            feature_count=len(feature_names),
+            feature_names=feature_names,
+        ),
+        model_instance=model,
+    )
+
+    inference_manager = DynamicInferenceManager(
+        max_rows_per_worker=max_rows,
+        max_workers=max_workers,
+        executor_type=executor_type,
+        probability_aggregation=aggregation,
+        prediction_threshold=threshold,
+        enable_ensemble=enable_ensemble,
+        include_per_model_probabilities=include_per_model,
+        weights=weights,
+        model_registry=registry,
     )
 
     # -----------------------------------------------------
@@ -649,12 +755,12 @@ def main():
     # 4. Predict
     # -----------------------------------------------------
 
-    predictions, probabilities = (
-        predict(
-            model,
-            X,
-        )
-    )
+    inf_result = inference_manager.predict(X)
+
+    predictions = inf_result.predictions
+    probabilities = inf_result.probabilities
+    inference_meta = inf_result.metadata
+    per_model_probabilities = inf_result.per_model_probabilities
 
     output = (
         build_prediction_output(
@@ -662,6 +768,8 @@ def main():
             original_features,
             predictions,
             probabilities,
+            inference_meta=inference_meta,
+            per_model_probabilities=per_model_probabilities,
         )
     )
 
@@ -844,6 +952,7 @@ def main():
         ),
         metrics=metrics,
         labeled_flows=labeled_flows,
+        inference_meta=inference_meta,
     )
 
     json_report_path = (

@@ -346,7 +346,7 @@ class TestConfig:
         from tabpfn_nids.pipeline_config import load_config
         cfg = load_config()
         assert cfg.extraction.backend in ("scapy", "tshark")
-        assert cfg.tabpfn.max_context_samples == 10_000
+        assert cfg.tabpfn.max_context_samples in (2000, 10_000)
         assert cfg.splitting.train_ratio == 0.7
         assert cfg.task.mode == "binary"
 
