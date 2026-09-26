@@ -59,6 +59,7 @@ from tabpfn_nids.data_pipeline import load_nsl_kdd     # correct
 from src.data_pipeline.loader import load_nsl_kdd      # wrong - there is no `src` package
 ```
 
+
 If you hit `ModuleNotFoundError`, the fix is `pip install -e .`, not
 `PYTHONPATH=.`. Setting `PYTHONPATH` to the repo root makes `import src.*`
 appear to work and then breaks the moment you run from another directory.
@@ -341,7 +342,7 @@ no CUDA required. Exact pins in `requirements.txt`.
 
 ## Reference
 
-Hollmann, N., Müller, S., Purucker, L., Krishnakumar, A., Körfer, M., Hoo, S. B.,
+Hollmann   ,  N., Müller, S., Purucker, L., Krishnakumar, A., Körfer, M., Hoo, S. B.,
 Schirrmeister, R. T., & Hutter, F. (2025). Accurate predictions on small data
 with a tabular foundation model. *Nature, 637*(8045), 319–326.
 https://doi.org/10.1038/s41586-024-08328-6
