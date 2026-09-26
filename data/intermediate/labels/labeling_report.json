@@ -1,0 +1,25 @@
+{
+  "total_flows": 58294,
+  "matched": 56916,
+  "unmatched": 1378,
+  "match_rate": 0.9764,
+  "normal": 52505,
+  "attack": 4411,
+  "category_distribution": {
+    "Normal": 52505,
+    "Fuzzers": 2102,
+    "Exploits": 1433,
+    "UNKNOWN": 1378,
+    "Reconnaissance": 443,
+    "DoS": 182,
+    "Generic": 166,
+    "Shellcode": 64,
+    "Worms": 12,
+    "Backdoors": 9
+  },
+  "match_type_distribution": {
+    "gt_csv_forward": 39987,
+    "gt_csv_reverse": 16929,
+    "unmatched": 1378
+  }
+}

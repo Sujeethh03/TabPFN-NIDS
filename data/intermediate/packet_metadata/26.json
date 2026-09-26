@@ -1,0 +1,27 @@
+{
+  "filename": "26.pcap",
+  "absolute_path": "E:\\4th Year\\Capstone Project\\TabPFN-NIDS\\TabPFN-NIDS\\data\\raw\\UNSW-NB15\\26.pcap",
+  "file_size_bytes": 1030712176,
+  "sha256": "6b594bcdcf24daabc053bd0a6e69882600fa6485ef61015b1dc426f9e50fe00f",
+  "readable": true,
+  "valid": true,
+  "error_message": null,
+  "packet_count": 1869147,
+  "first_timestamp": 1421949161.221633,
+  "last_timestamp": 1421950122.60618,
+  "duration_seconds": 961.384546995163,
+  "tcp_packets": 1839990,
+  "udp_packets": 28699,
+  "icmp_packets": 0,
+  "other_packets": 458,
+  "protocols": [
+    "17",
+    "6",
+    "89",
+    "tcp",
+    "udp"
+  ],
+  "link_type": "pcapng",
+  "malformed_packets": 0,
+  "validation_time_seconds": 272.4575614929199
+}

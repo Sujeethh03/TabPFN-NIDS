@@ -1,22 +1,12 @@
 # =========================================================
-# Datasets
+# Large PCAP datasets
 # =========================================================
 
-data/raw/**
-data/intermediate/**
-data/processed/**
-
-# Keep directory structure with .gitkeep
-!data/raw/**/
-!data/intermediate/**/
-!data/processed/**/
-
-# Dataset file types
-*.csv
-*.parquet
-*.zip
 *.pcap
 *.pcapng
+
+# Keep the small sample PCAP
+!data/sample_traffic.pcap
 
 # =========================================================
 # Generated artifacts
@@ -71,16 +61,3 @@ venv/
 
 !.gitkeep
 !**/.gitkeep
-
-
-# Local debugging / investigation scripts
-check_all_csvs.py
-check_pcap.py
-check_pcap_times.py
-find_attack_ranges.py
-test_flow_matching.py
-test_match.py
-validate_labels.py
-
-# Local backup of labeling implementation
-src/tabpfn_nids/labeling/unsw_ground_truth_backup.py
