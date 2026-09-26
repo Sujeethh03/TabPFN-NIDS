@@ -1,19 +1,38 @@
-# Datasets: ignore all contents, but keep the directory tree via .gitkeep.
-# The '!.../**/' line re-includes directories so git descends into them;
-# without it an excluded parent hides the .gitkeep inside it.
-data/raw/**
-data/interim/**
-data/processed/**
-!data/raw/**/
-!data/interim/**/
-!data/processed/**/
-*.csv
-*.parquet
-*.zip
+# =========================================================
+# Large PCAP datasets
+# =========================================================
 
-# ...but results are evidence, not data. They carry provenance (seed, hardware,
-# library versions, git commit) and no filesystem paths, so they are tracked.
+*.pcap
+*.pcapng
+
+# Keep the small sample PCAP
+!data/sample_traffic.pcap
+
+# =========================================================
+# Generated artifacts
+# =========================================================
+
+data/artifacts/**
+
+# Keep artifact directory structure if needed
+!data/artifacts/**/
+!data/artifacts/**/.gitkeep
+
+# =========================================================
+# Results
+# =========================================================
+
+outputs/
+results/
+logs/
+*.log
+
+# Keep report CSV files if they are intentionally tracked
 !reports/**/*.csv
+
+# =========================================================
+# Python
+# =========================================================
 
 __pycache__/
 *.pyc
@@ -22,16 +41,23 @@ venv/
 *.egg-info/
 .pytest_cache/
 
+# =========================================================
+# Jupyter
+# =========================================================
+
 .ipynb_checkpoints/
 
-.DS_Store
+# =========================================================
+# IDE / OS
+# =========================================================
 
 .vscode/
 .idea/
+.DS_Store
 
-outputs/
-*.log
+# =========================================================
+# Keep directory placeholders
+# =========================================================
 
-# --- keep the directory tree in a fresh clone ---
 !.gitkeep
 !**/.gitkeep

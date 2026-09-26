@@ -80,7 +80,7 @@ class FeatureSelector:
             for col in sorted(keep):
                 if col not in df.columns:
                     continue
-                col_hash = hash(df[col].values.tobytes()) if df[col].dtype != object else hash(tuple(df[col]))
+                col_hash = hash(tuple(df[col].astype(str)))
                 if col_hash in seen_hashes:
                     keep.discard(col)
                     self._removed_features[col] = f"duplicate of {seen_hashes[col_hash]}"

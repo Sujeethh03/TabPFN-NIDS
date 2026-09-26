@@ -1,28 +1,26 @@
-"""Ground-truth labeling using UNSW-NB15 official metadata.
+"""
+Ground-truth labeling using official UNSW-NB15 per-flow metadata.
 
-This module maps PCAP-extracted flows to official UNSW-NB15 ground-truth
-labels. It does NOT invent labels using heuristics — every label originates
-from the dataset's official ground-truth files.
+This module maps PCAP-extracted flows to the official UNSW-NB15
+per-flow dataset using:
 
-Labeling Strategy:
-    The UNSW-NB15 dataset provides ground truth in two forms:
-    1. UNSW_NB15_GT.csv — event-level ground truth with time intervals,
-       IPs, ports, and attack categories
-    2. Pre-generated training/testing CSV/parquet files with per-flow
-       features and labels
+1. Exact 5-tuple matching:
+   - Source IP
+   - Source port
+   - Destination IP
+   - Destination port
+   - Protocol
 
-    This module uses a multi-strategy matching approach:
-    A. If UNSW_NB15_GT.csv is available: match flows by temporal overlap
-       + IP/port/protocol
-    B. Fallback: match flows against the pre-generated dataset by
-       approximate feature similarity (documented as secondary strategy)
+2. Forward and reverse direction matching.
 
-    Flows that cannot be matched → labelled "UNKNOWN" (never silently
-    assigned to Normal).
+3. Nearest timestamp matching.
 
-Output:
-    - Labelled flow DataFrame with attack_cat and binary label columns
-    - Diagnostic report with match statistics
+4. Configurable timestamp tolerance.
+
+Only labels originating from the official UNSW-NB15 dataset are used.
+
+Flows that cannot be matched remain UNKNOWN.
+No heuristic/approximate labeling is performed.
 """
 
 from __future__ import annotations
@@ -38,386 +36,1001 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------
 # Official UNSW-NB15 attack categories
+# ---------------------------------------------------------------------
+
 ATTACK_CATEGORIES = [
-    "Normal", "Fuzzers", "Analysis", "Backdoors", "DoS",
-    "Exploits", "Generic", "Reconnaissance", "Shellcode", "Worms",
+    "Normal",
+    "Fuzzers",
+    "Analysis",
+    "Backdoors",
+    "DoS",
+    "Exploits",
+    "Generic",
+    "Reconnaissance",
+    "Shellcode",
+    "Worms",
 ]
 
-BINARY_LABELS = {"Normal": 0, "Attack": 1}
+BINARY_LABELS = {
+    "Normal": 0,
+    "Attack": 1,
+}
 
 UNKNOWN_LABEL = "UNKNOWN"
 
 
+# ---------------------------------------------------------------------
+# Raw UNSW-NB15 flow CSV columns
+# ---------------------------------------------------------------------
+
+UNSW_RAW_COLUMNS = [
+    "srcip",
+    "sport",
+    "dstip",
+    "dsport",
+    "proto",
+    "state",
+    "dur",
+    "sbytes",
+    "dbytes",
+    "sttl",
+    "dttl",
+    "sloss",
+    "dloss",
+    "service",
+    "sload",
+    "dload",
+    "spkts",
+    "dpkts",
+    "swin",
+    "dwin",
+    "stcpb",
+    "dtcpb",
+    "smean",
+    "dmean",
+    "trans_depth",
+    "response_body_len",
+    "sjit",
+    "djit",
+    "stime",
+    "ltime",
+    "sintpkt",
+    "dintpkt",
+    "tcprtt",
+    "synack",
+    "ackdat",
+    "is_sm_ips_ports",
+    "ct_state_ttl",
+    "ct_flw_http_mthd",
+    "is_ftp_login",
+    "ct_ftp_cmd",
+    "ct_srv_src",
+    "ct_srv_dst",
+    "ct_dst_ltm",
+    "ct_src_ltm",
+    "ct_src_dport_ltm",
+    "ct_dst_sport_ltm",
+    "ct_dst_src_ltm",
+    "attack_cat",
+    "label",
+]
+
+
+# ---------------------------------------------------------------------
+# Protocol normalization
+# ---------------------------------------------------------------------
+
+PROTOCOL_MAP = {
+    "1": "icmp",
+    "6": "tcp",
+    "17": "udp",
+    "icmp": "icmp",
+    "tcp": "tcp",
+    "udp": "udp",
+}
+
+
+def normalize_protocol(value: Any) -> str:
+    """
+    Convert protocol values to a common representation.
+
+    Examples:
+        6       -> tcp
+        "6"     -> tcp
+        "TCP"   -> tcp
+        17      -> udp
+        1       -> icmp
+    """
+
+    if pd.isna(value):
+        return ""
+
+    value_str = str(value).strip().lower()
+
+    # Remove decimal representation such as "6.0"
+    if value_str.endswith(".0"):
+        value_str = value_str[:-2]
+
+    return PROTOCOL_MAP.get(value_str, value_str)
+
+
+# ---------------------------------------------------------------------
+# Normalize IP
+# ---------------------------------------------------------------------
+
+def normalize_ip(value: Any) -> str:
+    """Normalize IP address values."""
+
+    if pd.isna(value):
+        return ""
+
+    return str(value).strip()
+
+
+# ---------------------------------------------------------------------
+# Normalize port
+# ---------------------------------------------------------------------
+
+def normalize_port(value: Any) -> int | None:
+    """Normalize port values."""
+
+    if pd.isna(value):
+        return None
+
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------
+# Load official UNSW-NB15 flow CSV
+# ---------------------------------------------------------------------
+
 def load_ground_truth_csv(gt_path: Path | str) -> pd.DataFrame:
-    """Load the UNSW_NB15_GT.csv ground-truth event file.
+    """
+    Load the official UNSW-NB15 per-flow CSV.
 
-    The GT file has columns including:
-        srcip, sport, dstip, dsport, proto, start_time, last_time,
-        attack_cat, ...
+    The raw UNSW-NB15 CSV files have:
 
-    Args:
-        gt_path: Path to UNSW_NB15_GT.csv.
+        - NO header
+        - 49 columns
+        - label in column 48
+        - attack category in column 47
+        - start time in column 28
+        - last time in column 29
+
+    Example:
+        UNSW-NB15_1.csv
 
     Returns:
-        DataFrame of ground-truth events.
-
-    Raises:
-        FileNotFoundError: If the file doesn't exist.
+        DataFrame containing the official flow records.
     """
+
     gt_path = Path(gt_path)
+
     if not gt_path.is_file():
         raise FileNotFoundError(
-            f"Ground-truth file not found: {gt_path}\n"
-            "Download UNSW_NB15_GT.csv from the UNSW-NB15 dataset page."
+            f"Ground-truth file not found: {gt_path}"
         )
 
-    df = pd.read_csv(gt_path, low_memory=False)
-    logger.info("Loaded %d GT events from %s", len(df), gt_path.name)
+    logger.info(
+        "Loading official UNSW-NB15 flow CSV: %s",
+        gt_path,
+    )
+
+    # -----------------------------------------------------------------
+    # Read raw CSV.
+    #
+    # The official UNSW-NB15 raw CSV has no header.
+    # -----------------------------------------------------------------
+
+    df = pd.read_csv(
+        gt_path,
+        header=None,
+        names=UNSW_RAW_COLUMNS,
+        low_memory=False,
+        on_bad_lines="skip",
+    )
+
+    logger.info(
+        "Loaded %d official UNSW-NB15 flow records from %s",
+        len(df),
+        gt_path.name,
+    )
+
+    # -----------------------------------------------------------------
+    # Normalize required columns
+    # -----------------------------------------------------------------
+
+    df["srcip"] = df["srcip"].map(normalize_ip)
+    df["dstip"] = df["dstip"].map(normalize_ip)
+
+    df["sport"] = df["sport"].map(normalize_port)
+    df["dsport"] = df["dsport"].map(normalize_port)
+
+    df["proto"] = df["proto"].map(normalize_protocol)
+
+    # Convert timestamps to numeric
+    df["stime"] = pd.to_numeric(
+        df["stime"],
+        errors="coerce",
+    )
+
+    df["ltime"] = pd.to_numeric(
+        df["ltime"],
+        errors="coerce",
+    )
+
+    # Convert label
+    df["label"] = pd.to_numeric(
+        df["label"],
+        errors="coerce",
+    )
+
+    # Normalize attack category
+    df["attack_cat"] = (
+        df["attack_cat"]
+        .fillna("Normal")
+        .astype(str)
+        .str.strip()
+    )
+
+    # Empty / nan attack category means Normal
+    df.loc[
+        df["attack_cat"].isin(["", "nan", "NaN", "None"]),
+        "attack_cat",
+    ] = "Normal"
+
+    # Make sure binary label agrees with official label
+    df["label"] = df["label"].fillna(
+        df["attack_cat"].ne("Normal").astype(int)
+    )
+
+    # Remove rows without usable timestamps
+    before = len(df)
+
+    df = df.dropna(
+        subset=["stime", "ltime"]
+    ).reset_index(drop=True)
+
+    removed = before - len(df)
+
+    if removed:
+        logger.warning(
+            "Removed %d GT rows with invalid timestamps",
+            removed,
+        )
+
     return df
 
+
+# ---------------------------------------------------------------------
+# Reference dataset loader
+# ---------------------------------------------------------------------
 
 def load_reference_dataset(
     train_path: Path | str,
     test_path: Path | str | None = None,
 ) -> pd.DataFrame:
-    """Load the pre-generated UNSW-NB15 training/testing parquets as reference.
-
-    These contain pre-computed flow features + labels and are used ONLY as
-    ground-truth reference for labeling PCAP-extracted flows. They are NOT
-    used as the primary feature source for ML.
-
-    Args:
-        train_path: Path to UNSW_NB15_training-set.parquet.
-        test_path: Path to UNSW_NB15_testing-set.parquet (optional).
-
-    Returns:
-        Combined reference DataFrame.
     """
+    Load the pre-generated UNSW-NB15 training/testing parquet files.
+
+    This function is retained for compatibility with the existing
+    project, but the current labeling pipeline DOES NOT use these files
+    for approximate labeling.
+
+    They remain available for other project functionality.
+    """
+
     train_path = Path(train_path)
+
     dfs = []
 
     if train_path.is_file():
         train_df = pd.read_parquet(train_path)
+
         logger.info(
-            "Loaded %d reference rows from %s (ground-truth ONLY)",
-            len(train_df), train_path.name,
+            "Loaded %d reference rows from %s",
+            len(train_df),
+            train_path.name,
         )
+
         dfs.append(train_df)
 
     if test_path:
         test_path = Path(test_path)
+
         if test_path.is_file():
             test_df = pd.read_parquet(test_path)
+
             logger.info(
-                "Loaded %d reference rows from %s (ground-truth ONLY)",
-                len(test_df), test_path.name,
+                "Loaded %d reference rows from %s",
+                len(test_df),
+                test_path.name,
             )
+
             dfs.append(test_df)
 
     if not dfs:
         raise FileNotFoundError(
-            "No reference dataset files found. Need at least "
-            "UNSW_NB15_training-set.parquet."
+            "No reference dataset files found."
         )
 
-    return pd.concat(dfs, ignore_index=True)
+    return pd.concat(
+        dfs,
+        ignore_index=True,
+    )
 
+
+# ---------------------------------------------------------------------
+# Build lookup dictionary
+# ---------------------------------------------------------------------
+
+def build_gt_lookup(
+    gt_df: pd.DataFrame,
+) -> dict[tuple[str, int | None, str, int | None, str], list[dict]]:
+    """
+    Build a 5-tuple lookup table.
+
+    Key:
+
+        (
+            source_ip,
+            source_port,
+            destination_ip,
+            destination_port,
+            protocol
+        )
+
+    Each key may have multiple records because UNSW-NB15 can contain
+    repeated flows with the same 5-tuple.
+    """
+
+    lookup: dict[
+        tuple[str, int | None, str, int | None, str],
+        list[dict],
+    ] = {}
+
+    for row in gt_df.itertuples(index=False):
+
+        key = (
+            normalize_ip(row.srcip),
+            normalize_port(row.sport),
+            normalize_ip(row.dstip),
+            normalize_port(row.dsport),
+            normalize_protocol(row.proto),
+        )
+
+        record = {
+            "stime": float(row.stime),
+            "ltime": float(row.ltime),
+            "attack_cat": str(row.attack_cat).strip(),
+            "label": int(row.label),
+        }
+
+        lookup.setdefault(key, []).append(record)
+
+    logger.info(
+        "Built GT 5-tuple lookup with %d unique keys",
+        len(lookup),
+    )
+
+    return lookup
+
+
+# ---------------------------------------------------------------------
+# Find nearest GT record
+# ---------------------------------------------------------------------
+
+def find_best_gt_match(
+    flow: pd.Series,
+    lookup: dict,
+    time_tolerance: float,
+) -> tuple[dict | None, float | None, str | None]:
+    """
+    Find the nearest official UNSW-NB15 record for a flow.
+
+    Checks:
+
+        1. Forward direction
+        2. Reverse direction
+
+    Matching is based on exact 5-tuple + nearest timestamp.
+
+    Returns:
+
+        (record, timestamp_difference, direction)
+
+    or
+
+        (None, None, None)
+    """
+
+    src_ip = normalize_ip(flow.get("src_ip"))
+    dst_ip = normalize_ip(flow.get("dst_ip"))
+
+    src_port = normalize_port(flow.get("src_port"))
+    dst_port = normalize_port(flow.get("dst_port"))
+
+    protocol = normalize_protocol(
+        flow.get(
+            "protocol_name",
+            flow.get("protocol", ""),
+        )
+    )
+
+    flow_start = float(flow["start_time"])
+
+    # ---------------------------------------------------------------
+    # Forward direction
+    # ---------------------------------------------------------------
+
+    forward_key = (
+        src_ip,
+        src_port,
+        dst_ip,
+        dst_port,
+        protocol,
+    )
+
+    # ---------------------------------------------------------------
+    # Reverse direction
+    # ---------------------------------------------------------------
+
+    reverse_key = (
+        dst_ip,
+        dst_port,
+        src_ip,
+        src_port,
+        protocol,
+    )
+
+    candidates = []
+
+    for key, direction in [
+        (forward_key, "forward"),
+        (reverse_key, "reverse"),
+    ]:
+
+        records = lookup.get(key)
+
+        if not records:
+            continue
+
+        for record in records:
+
+            # Use the official flow start time as the reference point.
+            diff = abs(
+                float(record["stime"]) - flow_start
+            )
+
+            if diff <= time_tolerance:
+
+                candidates.append(
+                    (
+                        diff,
+                        record,
+                        direction,
+                    )
+                )
+
+    if not candidates:
+        return None, None, None
+
+    # Nearest timestamp wins
+    candidates.sort(
+        key=lambda item: item[0]
+    )
+
+    best_diff, best_record, best_direction = candidates[0]
+
+    return (
+        best_record,
+        best_diff,
+        best_direction,
+    )
+
+
+# ---------------------------------------------------------------------
+# Match PCAP flows to official UNSW-NB15 records
+# ---------------------------------------------------------------------
 
 def match_flows_to_gt_csv(
     flows_df: pd.DataFrame,
     gt_df: pd.DataFrame,
-    time_tolerance: float = 1.0,
+    time_tolerance: float = 5.0,
     use_ip_port: bool = True,
 ) -> pd.DataFrame:
-    """Match PCAP-extracted flows to GT events using temporal + 5-tuple matching.
-
-    For each flow, finds GT events that overlap temporally and match on
-    IP/port/protocol. If multiple GT events match, the one with the longest
-    temporal overlap is chosen.
-
-    Args:
-        flows_df: PCAP-extracted flows with src_ip, dst_ip, src_port,
-            dst_port, protocol_name, start_time, end_time.
-        gt_df: Ground-truth events from UNSW_NB15_GT.csv.
-        time_tolerance: Seconds of tolerance for temporal matching.
-        use_ip_port: Whether to also match on IP/port.
-
-    Returns:
-        flows_df with attack_cat and label columns added.
     """
+    Match PCAP-extracted flows to official UNSW-NB15 flow records.
+
+    Matching strategy:
+
+        1. Exact source/destination IP
+        2. Exact source/destination port
+        3. Exact protocol
+        4. Forward or reverse direction
+        5. Nearest official start timestamp
+        6. Timestamp difference <= time_tolerance
+
+    No approximate feature matching is performed.
+
+    Unmatched flows remain UNKNOWN.
+    """
+
     out = flows_df.copy()
+
+    # ---------------------------------------------------------------
+    # Initialize labels
+    # ---------------------------------------------------------------
+
     out["attack_cat"] = UNKNOWN_LABEL
-    out["label"] = -1  # -1 = unmatched
+    out["label"] = -1
     out["match_type"] = "unmatched"
 
-    # Normalise GT column names
-    gt = gt_df.copy()
-    col_map = {}
-    for c in gt.columns:
-        col_map[c.strip().lower()] = c
-    # Try to find standard GT columns
-    src_ip_col = col_map.get("srcip", col_map.get("src_ip", None))
-    dst_ip_col = col_map.get("dstip", col_map.get("dst_ip", None))
-    sport_col = col_map.get("sport", col_map.get("src_port", None))
-    dsport_col = col_map.get("dsport", col_map.get("dst_port", None))
-    start_col = col_map.get("start_time", col_map.get("stime", None))
-    end_col = col_map.get("last_time", col_map.get("ltime", None))
-    cat_col = col_map.get("attack_cat", col_map.get("category", None))
+    # ---------------------------------------------------------------
+    # Validate required flow columns
+    # ---------------------------------------------------------------
 
-    if not all([src_ip_col, dst_ip_col, start_col, cat_col]):
-        logger.warning(
-            "GT CSV missing required columns. Available: %s", list(gt.columns)
+    required_columns = [
+        "src_ip",
+        "dst_ip",
+        "src_port",
+        "dst_port",
+        "start_time",
+    ]
+
+    missing = [
+        col
+        for col in required_columns
+        if col not in out.columns
+    ]
+
+    if missing:
+        raise ValueError(
+            f"Flow dataframe missing required columns: {missing}"
         )
-        return out
+
+    # ---------------------------------------------------------------
+    # Build lookup
+    # ---------------------------------------------------------------
+
+    lookup = build_gt_lookup(gt_df)
 
     matched = 0
-    for idx, flow in out.iterrows():
-        flow_start = flow["start_time"]
-        flow_end = flow["end_time"]
+    unmatched = 0
 
-        # Temporal filter: GT events overlapping with this flow
-        if start_col and end_col:
-            mask = (
-                (gt[start_col] <= flow_end + time_tolerance) &
-                (gt[end_col] >= flow_start - time_tolerance)
+    forward_matches = 0
+    reverse_matches = 0
+
+    timestamp_diffs = []
+
+    # ---------------------------------------------------------------
+    # Iterate over PCAP flows
+    # ---------------------------------------------------------------
+
+    for idx, flow in out.iterrows():
+
+        try:
+
+            record, diff, direction = find_best_gt_match(
+                flow,
+                lookup,
+                time_tolerance,
             )
-        else:
+
+        except Exception as exc:
+
+            logger.debug(
+                "Error matching flow %s: %s",
+                idx,
+                exc,
+            )
+
+            record = None
+            diff = None
+            direction = None
+
+        # -----------------------------------------------------------
+        # No match
+        # -----------------------------------------------------------
+
+        if record is None:
+
+            unmatched += 1
+
             continue
 
-        # IP/port filter
-        if use_ip_port and src_ip_col and dst_ip_col:
-            ip_mask = (
-                ((gt[src_ip_col].astype(str) == str(flow["src_ip"])) &
-                 (gt[dst_ip_col].astype(str) == str(flow["dst_ip"]))) |
-                ((gt[src_ip_col].astype(str) == str(flow["dst_ip"])) &
-                 (gt[dst_ip_col].astype(str) == str(flow["src_ip"])))
-            )
-            mask = mask & ip_mask
+        # -----------------------------------------------------------
+        # Match found
+        # -----------------------------------------------------------
 
-        candidates = gt[mask]
-        if len(candidates) > 0:
-            # Pick the candidate with the most temporal overlap
-            cat = candidates.iloc[0][cat_col]
-            if pd.isna(cat) or str(cat).strip() == "":
-                cat = "Normal"
-            cat = str(cat).strip()
+        attack_cat = str(
+            record["attack_cat"]
+        ).strip()
 
-            out.at[idx, "attack_cat"] = cat
-            out.at[idx, "label"] = 0 if cat == "Normal" else 1
-            out.at[idx, "match_type"] = "gt_csv"
-            matched += 1
+        if not attack_cat or attack_cat.lower() == "nan":
+            attack_cat = "Normal"
+
+        official_label = int(
+            record["label"]
+        )
+
+        out.at[idx, "attack_cat"] = attack_cat
+        out.at[idx, "label"] = official_label
+
+        out.at[
+            idx,
+            "match_type",
+        ] = f"gt_csv_{direction}"
+
+        matched += 1
+
+        if direction == "forward":
+            forward_matches += 1
+
+        elif direction == "reverse":
+            reverse_matches += 1
+
+        if diff is not None:
+            timestamp_diffs.append(diff)
+
+    # ---------------------------------------------------------------
+    # Diagnostics
+    # ---------------------------------------------------------------
+
+    total = len(out)
+
+    match_rate = (
+        matched / total
+        if total
+        else 0.0
+    )
 
     logger.info(
-        "GT CSV matching: %d/%d flows matched (%.1f%%)",
-        matched, len(out), 100 * matched / max(len(out), 1),
+        "Official GT matching: %d/%d flows matched (%.2f%%)",
+        matched,
+        total,
+        match_rate * 100,
     )
+
+    logger.info(
+        "Forward matches: %d",
+        forward_matches,
+    )
+
+    logger.info(
+        "Reverse matches: %d",
+        reverse_matches,
+    )
+
+    logger.info(
+        "Unmatched flows: %d",
+        unmatched,
+    )
+
+    if timestamp_diffs:
+
+        diffs = np.asarray(
+            timestamp_diffs,
+            dtype=float,
+        )
+
+        logger.info(
+            "Timestamp difference: "
+            "min=%.6fs median=%.6fs max=%.6fs",
+            float(np.min(diffs)),
+            float(np.median(diffs)),
+            float(np.max(diffs)),
+        )
+
     return out
 
+
+# ---------------------------------------------------------------------
+# Legacy fallback function
+# ---------------------------------------------------------------------
 
 def match_flows_to_reference(
     flows_df: pd.DataFrame,
     ref_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Fallback matching: use reference dataset features for approximate labeling.
-
-    When UNSW_NB15_GT.csv is not available, this matches PCAP-extracted flows
-    to the pre-generated UNSW dataset using protocol, duration, packet counts,
-    and byte counts as matching features.
-
-    This is explicitly documented as a secondary/approximate strategy.
-
-    Args:
-        flows_df: PCAP-extracted flows with computed features.
-        ref_df: Pre-generated UNSW-NB15 reference dataset with attack_cat.
-
-    Returns:
-        flows_df with attack_cat and label columns added.
     """
-    out = flows_df.copy()
+    Legacy compatibility function.
 
-    # Only set labels for rows still unmatched
-    unmatched_mask = out.get("attack_cat", UNKNOWN_LABEL) == UNKNOWN_LABEL
+    IMPORTANT:
+    Approximate reference matching is intentionally disabled.
 
-    if not unmatched_mask.any():
-        return out
+    The project should never assign a label based only on approximate
+    duration/protocol similarity because that can create incorrect
+    attack labels.
 
-    # Reference features for matching
-    if "proto" in ref_df.columns:
-        ref_proto = ref_df["proto"].astype(str).str.lower()
-    else:
-        ref_proto = pd.Series([""] * len(ref_df))
+    Unmatched flows remain UNKNOWN.
+    """
 
-    if "attack_cat" not in ref_df.columns:
-        logger.warning("Reference dataset has no attack_cat column")
-        return out
-
-    matched = 0
-    for idx in out[unmatched_mask].index:
-        flow = out.loc[idx]
-        proto = str(flow.get("protocol_name", "")).lower()
-
-        # Find reference flows with matching protocol
-        proto_mask = ref_proto == proto
-        candidates = ref_df[proto_mask]
-
-        if len(candidates) == 0:
-            continue
-
-        # Match on duration similarity
-        flow_dur = float(flow.get("duration", 0))
-        if "dur" in candidates.columns:
-            dur_diff = (candidates["dur"] - flow_dur).abs()
-            best_idx = dur_diff.idxmin()
-            best = candidates.loc[best_idx]
-
-            cat = str(best["attack_cat"]).strip()
-            if pd.isna(cat) or cat == "" or cat == "nan":
-                cat = "Normal"
-
-            out.at[idx, "attack_cat"] = cat
-            out.at[idx, "label"] = 0 if cat == "Normal" else 1
-            out.at[idx, "match_type"] = "reference_approx"
-            matched += 1
-
-    logger.info(
-        "Reference matching: %d additional flows matched", matched,
+    logger.warning(
+        "Approximate reference matching is disabled. "
+        "Unmatched flows will remain UNKNOWN."
     )
-    return out
 
+    return flows_df
+
+
+# ---------------------------------------------------------------------
+# Main labeling entry point
+# ---------------------------------------------------------------------
 
 def label_flows(
     flows_df: pd.DataFrame,
     gt_csv_path: Path | str | None = None,
     ref_train_path: Path | str | None = None,
     ref_test_path: Path | str | None = None,
-    time_tolerance: float = 1.0,
+    time_tolerance: float = 5.0,
     use_ip_port: bool = True,
 ) -> pd.DataFrame:
-    """Main labeling entry point: apply all available labeling strategies.
-
-    Strategy order:
-    1. If GT CSV available → temporal + IP/port matching
-    2. For remaining unmatched → reference dataset approximate matching
-    3. Still unmatched → remain as UNKNOWN
-
-    Args:
-        flows_df: PCAP-extracted flows with features.
-        gt_csv_path: Path to UNSW_NB15_GT.csv (primary strategy).
-        ref_train_path: Path to pre-generated training parquet.
-        ref_test_path: Path to pre-generated testing parquet.
-        time_tolerance: Seconds tolerance for temporal matching.
-        use_ip_port: Whether to match on IP/port.
-
-    Returns:
-        Labelled DataFrame.
     """
+    Main labeling entry point.
+
+    Primary strategy:
+
+        Official UNSW-NB15 per-flow CSV
+        + exact 5-tuple
+        + forward/reverse matching
+        + nearest timestamp
+
+    Unmatched flows remain UNKNOWN.
+
+    Approximate reference matching is NOT performed.
+    """
+
     out = flows_df.copy()
+
     out["attack_cat"] = UNKNOWN_LABEL
     out["label"] = -1
     out["match_type"] = "unmatched"
 
     started = time.time()
 
-    # Strategy 1: GT CSV
-    if gt_csv_path and Path(gt_csv_path).is_file():
-        logger.info("Using primary labeling strategy: UNSW_NB15_GT.csv")
-        gt_df = load_ground_truth_csv(gt_csv_path)
-        out = match_flows_to_gt_csv(
-            out, gt_df,
-            time_tolerance=time_tolerance,
-            use_ip_port=use_ip_port,
+    # ---------------------------------------------------------------
+    # Official GT matching
+    # ---------------------------------------------------------------
+
+    if gt_csv_path:
+
+        gt_csv_path = Path(
+            gt_csv_path
         )
 
-    # Strategy 2: Reference dataset (for remaining unmatched flows)
-    unmatched_count = (out["attack_cat"] == UNKNOWN_LABEL).sum()
-    if unmatched_count > 0 and ref_train_path:
-        ref_train_path = Path(ref_train_path)
-        if ref_train_path.is_file():
+        if gt_csv_path.is_file():
+
             logger.info(
-                "Using fallback strategy: reference dataset matching "
-                "(%d unmatched flows)", unmatched_count,
+                "Using official UNSW-NB15 per-flow ground truth: %s",
+                gt_csv_path,
             )
-            ref_df = load_reference_dataset(ref_train_path, ref_test_path)
-            out = match_flows_to_reference(out, ref_df)
+
+            gt_df = load_ground_truth_csv(
+                gt_csv_path
+            )
+
+            out = match_flows_to_gt_csv(
+                out,
+                gt_df,
+                time_tolerance=time_tolerance,
+                use_ip_port=use_ip_port,
+            )
+
+        else:
+
+            logger.warning(
+                "Ground-truth CSV not found: %s",
+                gt_csv_path,
+            )
+
+    else:
+
+        logger.warning(
+            "No ground-truth CSV configured."
+        )
+
+    # ---------------------------------------------------------------
+    # DO NOT use approximate fallback.
+    # ---------------------------------------------------------------
+
+    final_unmatched = int(
+        (
+            out["attack_cat"]
+            == UNKNOWN_LABEL
+        ).sum()
+    )
+
+    final_matched = len(out) - final_unmatched
 
     elapsed = time.time() - started
-    final_unmatched = (out["attack_cat"] == UNKNOWN_LABEL).sum()
 
     logger.info(
-        "Labeling complete in %.1fs: %d matched, %d UNKNOWN",
-        elapsed, len(out) - final_unmatched, final_unmatched,
+        "Labeling complete in %.1fs: "
+        "%d matched, %d UNKNOWN",
+        elapsed,
+        final_matched,
+        final_unmatched,
+    )
+
+    # ---------------------------------------------------------------
+    # Distribution
+    # ---------------------------------------------------------------
+
+    normal_count = int(
+        (
+            out["attack_cat"]
+            == "Normal"
+        ).sum()
+    )
+
+    attack_count = int(
+        (
+            (out["attack_cat"] != "Normal")
+            & (out["attack_cat"] != UNKNOWN_LABEL)
+        ).sum()
+    )
+
+    logger.info(
+        "Label distribution: Normal=%d Attack=%d UNKNOWN=%d",
+        normal_count,
+        attack_count,
+        final_unmatched,
     )
 
     return out
 
 
+# ---------------------------------------------------------------------
+# Labeling report
+# ---------------------------------------------------------------------
+
 def generate_labeling_report(
     df: pd.DataFrame,
     output_path: Path | str,
 ) -> dict[str, Any]:
-    """Generate a diagnostic report on labeling results.
-
-    Args:
-        df: Labelled flow DataFrame.
-        output_path: Where to save the JSON report.
-
-    Returns:
-        Report dict.
     """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    Generate a diagnostic report for labeling results.
+    """
+
+    output_path = Path(
+        output_path
+    )
+
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     total = len(df)
-    matched = (df["attack_cat"] != UNKNOWN_LABEL).sum()
-    unmatched = (df["attack_cat"] == UNKNOWN_LABEL).sum()
-    normal = (df["attack_cat"] == "Normal").sum()
-    attack = ((df["attack_cat"] != "Normal") & (df["attack_cat"] != UNKNOWN_LABEL)).sum()
 
-    # Per-category counts
-    cat_counts = df["attack_cat"].value_counts().to_dict()
+    matched = int(
+        (
+            df["attack_cat"]
+            != UNKNOWN_LABEL
+        ).sum()
+    )
 
-    # Match type counts
-    match_counts = df.get("match_type", pd.Series(dtype=str)).value_counts().to_dict()
+    unmatched = int(
+        (
+            df["attack_cat"]
+            == UNKNOWN_LABEL
+        ).sum()
+    )
+
+    normal = int(
+        (
+            df["attack_cat"]
+            == "Normal"
+        ).sum()
+    )
+
+    attack = int(
+        (
+            (df["attack_cat"] != "Normal")
+            & (df["attack_cat"] != UNKNOWN_LABEL)
+        ).sum()
+    )
+
+    category_counts = (
+        df["attack_cat"]
+        .value_counts()
+        .to_dict()
+    )
+
+    match_counts = (
+        df.get(
+            "match_type",
+            pd.Series(dtype=str),
+        )
+        .value_counts()
+        .to_dict()
+    )
 
     report = {
-        "total_flows": int(total),
-        "matched": int(matched),
-        "unmatched": int(unmatched),
-        "match_rate": round(matched / max(total, 1), 4),
-        "normal": int(normal),
-        "attack": int(attack),
-        "category_distribution": {str(k): int(v) for k, v in cat_counts.items()},
-        "match_type_distribution": {str(k): int(v) for k, v in match_counts.items()},
+        "total_flows": total,
+        "matched": matched,
+        "unmatched": unmatched,
+        "match_rate": round(
+            matched / max(total, 1),
+            4,
+        ),
+        "normal": normal,
+        "attack": attack,
+        "category_distribution": {
+            str(k): int(v)
+            for k, v in category_counts.items()
+        },
+        "match_type_distribution": {
+            str(k): int(v)
+            for k, v in match_counts.items()
+        },
     }
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2)
+    with open(
+        output_path,
+        "w",
+        encoding="utf-8",
+    ) as f:
 
-    logger.info("Labeling report → %s", output_path)
+        json.dump(
+            report,
+            f,
+            indent=2,
+        )
+
+    logger.info(
+        "Labeling report → %s",
+        output_path,
+    )
+
     return report
 
+
+# ---------------------------------------------------------------------
+# Save labeled flows
+# ---------------------------------------------------------------------
 
 def save_labeled_flows(
     df: pd.DataFrame,
     output_path: Path | str,
 ) -> int:
-    """Save labelled flows to Parquet.
-
-    Args:
-        df: Labelled flow DataFrame.
-        output_path: Destination path.
-
-    Returns:
-        Number of rows written.
     """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    Save labeled flows to Parquet.
+    """
 
-    table = pa.Table.from_pandas(df)
-    pq.write_table(table, output_path, compression="snappy")
+    output_path = Path(
+        output_path
+    )
 
-    logger.info("Saved %d labelled flows to %s", len(df), output_path)
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    table = pa.Table.from_pandas(
+        df
+    )
+
+    pq.write_table(
+        table,
+        output_path,
+        compression="snappy",
+    )
+
+    logger.info(
+        "Saved %d labelled flows to %s",
+        len(df),
+        output_path,
+    )
+
     return len(df)

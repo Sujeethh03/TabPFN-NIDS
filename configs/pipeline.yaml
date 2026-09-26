@@ -3,66 +3,102 @@
 # ==========================================================================
 # Central config for the UNSW-NB15 PCAP → TabPFN intrusion detection pipeline.
 # Every module reads from this file via src/tabpfn_nids/pipeline_config.py.
-# Do NOT hard-code these values in source code.
+#
+# IMPORTANT:
+# The labeling stage uses the official UNSW-NB15 per-flow CSV:
+#     UNSW-NB15_1.csv
+#
+# This is different from:
+#     UNSW_NB15_GT.csv
+#
+# UNSW-NB15_1.csv contains the official per-flow labels that can be matched
+# against flows extracted from 1.pcap using:
+#     IP + Port + Protocol + Timestamp
+# ==========================================================================
+
 
 # --------------------------------------------------------------------------
-# Paths (relative to project root)
+# Paths
 # --------------------------------------------------------------------------
 paths:
   raw_data_dir: "data/raw/UNSW-NB15"
+
   intermediate_dir: "data/intermediate"
+
   processed_dir: "data/processed"
+
   artifacts_dir: "data/artifacts"
+
   results_dir: "results"
+
   logs_dir: "logs"
 
-  # UNSW-NB15 ground-truth reference files (used ONLY for labeling)
-  unsw_ground_truth_csv: "data/raw/UNSW-NB15/UNSW_NB15_GT.csv"
+  # ------------------------------------------------------------------------
+  # IMPORTANT:
+  # Use the official per-flow UNSW-NB15 CSV for labeling.
+  #
+  # DO NOT use:
+  #   UNSW_NB15_GT.csv
+  #
+  # The labeling implementation expects the 49-column raw flow CSV.
+  # ------------------------------------------------------------------------
+  unsw_ground_truth_csv: "data/raw/UNSW-NB15/UNSW-NB15_1.csv"
+
+  # ------------------------------------------------------------------------
+  # Reference datasets
+  #
+  # These are retained for project compatibility.
+  # The current labeling implementation does NOT perform approximate
+  # reference matching.
+  # ------------------------------------------------------------------------
   unsw_training_parquet: "data/raw/usnw-nb 15/UNSW_NB15_training-set.parquet"
+
   unsw_testing_parquet: "data/raw/usnw-nb 15/UNSW_NB15_testing-set.parquet"
+
 
 # --------------------------------------------------------------------------
 # PCAP extraction
 # --------------------------------------------------------------------------
 extraction:
-  # Backend: "scapy" (Python-native, pip-installable) or "tshark" (faster, needs install)
+  # Backend:
+  #   scapy  = Python-native
+  #   tshark = faster but requires Wireshark/tshark
   backend: "scapy"
 
-  # tshark path (auto-detected if on PATH, else specify)
+  # tshark path
   tshark_path: "tshark"
 
-  # Maximum packets to buffer in memory before flushing to flow builder
+  # Maximum packets buffered before flushing
   packet_batch_size: 50000
 
-  # Protocols to extract (others are counted but not flow-keyed)
+  # Protocols to extract
   protocols:
     - "tcp"
     - "udp"
     - "icmp"
 
+
 # --------------------------------------------------------------------------
 # Flow construction
 # --------------------------------------------------------------------------
 flows:
-  # Bidirectional flow timeout: if no packet arrives within this window,
-  # the flow is considered complete and a new flow starts for the same 5-tuple.
+  # Bidirectional flow timeout
   flow_timeout_seconds: 120
 
-  # Idle timeout: close flow if no activity for this many seconds
+  # Idle timeout
   idle_timeout_seconds: 60
 
-  # Minimum flow duration in seconds (flows shorter than this are retained
-  # but flagged; they are NOT dropped because scans are legitimately short)
+  # Minimum flow duration
   min_flow_duration: 0.0
 
-  # Maximum packets per flow before forced flush (memory safety)
+  # Maximum packets per flow
   max_packets_per_flow: 1000000
+
 
 # --------------------------------------------------------------------------
 # Feature engineering
 # --------------------------------------------------------------------------
 features:
-  # Feature groups to compute. Disable groups to reduce feature count.
   groups:
     basic: true
     directional: true
@@ -72,21 +108,35 @@ features:
     tcp_flags: true
     protocol: true
 
-  # Epsilon added to zero-duration denominators to avoid division by zero
+  # Prevent division by zero
   duration_epsilon: 1.0e-6
+
 
 # --------------------------------------------------------------------------
 # Labeling
 # --------------------------------------------------------------------------
 labeling:
-  # Maximum time tolerance (seconds) when matching flows to GT events
-  time_tolerance_seconds: 1.0
 
-  # Whether to use IP/port matching in addition to temporal matching
+  # ------------------------------------------------------------------------
+  # IMPORTANT:
+  #
+  # We validated the 1.pcap → UNSW-NB15_1.csv matching.
+  #
+  # A 5-second tolerance gave approximately:
+  #
+  #   56,918 / 58,294 matched
+  #   97.64% coverage
+  #
+  # Unmatched flows remain UNKNOWN.
+  # ------------------------------------------------------------------------
+  time_tolerance_seconds: 5.0
+
+  # Match using source/destination IP and ports
   use_ip_port_matching: true
 
-  # Label for flows that cannot be matched to any GT event
+  # Never silently convert unmatched flows to Normal
   unknown_label: "UNKNOWN"
+
 
 # --------------------------------------------------------------------------
 # Task configuration
@@ -113,14 +163,15 @@ task:
     Shellcode: 8
     Worms: 9
 
+
 # --------------------------------------------------------------------------
 # Data cleaning
 # --------------------------------------------------------------------------
 cleaning:
-  # Strategy for missing values: "drop", "median", "zero"
+  # Missing-value strategy
   missing_value_strategy: "median"
 
-  # Remove rows with impossible values (negative packets, negative bytes)
+  # Remove impossible values
   remove_impossible: true
 
   # Remove exact duplicate flow records
@@ -129,21 +180,24 @@ cleaning:
   # Maximum valid port number
   max_valid_port: 65535
 
+
 # --------------------------------------------------------------------------
 # Feature selection
 # --------------------------------------------------------------------------
 feature_selection:
-  # Remove features with zero or near-zero variance
+
+  # Remove constant features
   remove_constant: true
+
   variance_threshold: 0.0
 
-  # Remove features that are perfect duplicates of another
+  # Remove duplicate features
   remove_duplicates: true
 
-  # Correlation threshold for redundancy check (report only, don't auto-remove)
+  # Correlation threshold
   correlation_report_threshold: 0.98
 
-  # Features to always exclude from ML (metadata, identifiers)
+  # Metadata / identifier columns excluded from ML
   exclude_features:
     - "flow_id"
     - "src_ip"
@@ -153,102 +207,118 @@ feature_selection:
     - "start_time"
     - "end_time"
 
+
 # --------------------------------------------------------------------------
 # Categorical encoding
 # --------------------------------------------------------------------------
 encoding:
-  # Strategy: "ordinal" (for TabPFN, which handles categoricals natively)
-  # or "onehot" (for classical models)
+
+  # TabPFN-compatible categorical handling
   categorical_strategy: "ordinal"
+
 
 # --------------------------------------------------------------------------
 # Numeric scaling
 # --------------------------------------------------------------------------
 scaling:
-  # Strategy: "standard", "robust", "minmax", "none"
-  # TabPFN has internal normalisation, so "none" is often fine.
+
+  # TabPFN performs internal normalization
   numeric_strategy: "robust"
+
 
 # --------------------------------------------------------------------------
 # Train / Validation / Test split
 # --------------------------------------------------------------------------
 splitting:
-  # Strategy: "temporal" (recommended for network data),
-  #           "stratified_random", "group_aware"
+
+  # Temporal split is appropriate for network traffic
   strategy: "temporal"
 
-  # Split ratios
   train_ratio: 0.7
+
   validation_ratio: 0.15
+
   test_ratio: 0.15
 
-  # Random seed for reproducibility
   random_seed: 42
 
-  # Leakage check: verify no identical flows across splits
+  # Check for leakage between splits
   check_leakage: true
+
 
 # --------------------------------------------------------------------------
 # Dataset balancing
 # --------------------------------------------------------------------------
 balancing:
-  # Strategy: "none" (natural distribution), "class_weight",
-  #           "undersample", "oversample"
+
+  # Keep natural class distribution
   strategy: "none"
 
-  # Only applied to training set, never to validation/test
+  # Only applies to training data
   apply_to_train_only: true
+
 
 # --------------------------------------------------------------------------
 # TabPFN parameters
 # --------------------------------------------------------------------------
 tabpfn:
-  # Model checkpoint (pinned to v2 ungated)
+
+  # Model checkpoint
   checkpoint: "tabpfn-v2-classifier.ckpt"
 
-  # Device: "auto", "cpu", "cuda", "mps"
+  # Automatically choose CPU/CUDA/MPS
   device: "auto"
 
-  # Maximum training samples per TabPFN context
-  max_context_samples: 10000
+  # Maximum training samples per context
+  max_context_samples: 2000
 
-  # TabPFN ensemble size: "auto" or integer
-  n_estimators: "auto"
+  # Ensemble size
+  n_estimators: 2
 
-  # Maximum training samples (subsample if dataset is larger)
-  max_train_samples: null  # null = use all available
+  # null = use all available training samples
+  max_train_samples: null
 
-  # Prediction batch size (prevents OOM on MPS/GPU)
-  predict_batch_size: 1000
+  # Prediction batch size
+  predict_batch_size: 500
 
-  # Use chunked ensemble for datasets > max_context_samples
+  # Enable chunked ensemble for larger datasets
   use_chunked_ensemble: true
 
-  # Chunked ensemble aggregation: "weighted_vote" or "majority"
+  # Ensemble aggregation
   ensemble_aggregation: "weighted_vote"
+
 
 # --------------------------------------------------------------------------
 # Logging
 # --------------------------------------------------------------------------
 logging:
+
   level: "INFO"
+
   log_to_file: true
+
   log_format: "%(asctime)s | %(levelname)-7s | %(name)-28s | %(message)s"
+
 
 # --------------------------------------------------------------------------
 # Performance
 # --------------------------------------------------------------------------
 performance:
-  # Number of parallel workers (0 = sequential)
+
+  # 0 = sequential
   workers: 0
 
-  # Progress bar
+  # Show progress
   show_progress: true
+
 
 # --------------------------------------------------------------------------
 # Reproducibility
 # --------------------------------------------------------------------------
 reproducibility:
+
   random_seed: 42
+
   record_checksums: true
+
   record_package_versions: true

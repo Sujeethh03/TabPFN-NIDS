@@ -297,12 +297,12 @@ class FlowBuilder:
                     flow.fwd_timestamps.append(pkt.timestamp)
                     flow.fwd_payload_bytes += pkt.payload_length
                     if pkt.protocol_name == "tcp":
-                        flow.fwd_syn += bool(pkt.tcp_flags & TCP_SYN)
-                        flow.fwd_ack += bool(pkt.tcp_flags & TCP_ACK)
-                        flow.fwd_fin += bool(pkt.tcp_flags & TCP_FIN)
-                        flow.fwd_rst += bool(pkt.tcp_flags & TCP_RST)
-                        flow.fwd_psh += bool(pkt.tcp_flags & TCP_PSH)
-                        flow.fwd_urg += bool(pkt.tcp_flags & TCP_URG)
+                        flow.fwd_syn += int(bool(pkt.tcp_flags & TCP_SYN))
+                        flow.fwd_ack += int(bool(pkt.tcp_flags & TCP_ACK))
+                        flow.fwd_fin += int(bool(pkt.tcp_flags & TCP_FIN))
+                        flow.fwd_rst += int(bool(pkt.tcp_flags & TCP_RST))
+                        flow.fwd_psh += int(bool(pkt.tcp_flags & TCP_PSH))
+                        flow.fwd_urg += int(bool(pkt.tcp_flags & TCP_URG))
                 else:
                     flow.bwd_packets += 1
                     flow.bwd_bytes += pkt.length
@@ -310,12 +310,12 @@ class FlowBuilder:
                     flow.bwd_timestamps.append(pkt.timestamp)
                     flow.bwd_payload_bytes += pkt.payload_length
                     if pkt.protocol_name == "tcp":
-                        flow.bwd_syn += bool(pkt.tcp_flags & TCP_SYN)
-                        flow.bwd_ack += bool(pkt.tcp_flags & TCP_ACK)
-                        flow.bwd_fin += bool(pkt.tcp_flags & TCP_FIN)
-                        flow.bwd_rst += bool(pkt.tcp_flags & TCP_RST)
-                        flow.bwd_psh += bool(pkt.tcp_flags & TCP_PSH)
-                        flow.bwd_urg += bool(pkt.tcp_flags & TCP_URG)
+                        flow.bwd_syn += int(bool(pkt.tcp_flags & TCP_SYN))
+                        flow.bwd_ack += int(bool(pkt.tcp_flags & TCP_ACK))
+                        flow.bwd_fin += int(bool(pkt.tcp_flags & TCP_FIN))
+                        flow.bwd_rst += int(bool(pkt.tcp_flags & TCP_RST))
+                        flow.bwd_psh += int(bool(pkt.tcp_flags & TCP_PSH))
+                        flow.bwd_urg += int(bool(pkt.tcp_flags & TCP_URG))
 
                 flow.total_packets = flow.fwd_packets + flow.bwd_packets
                 flow.total_bytes = flow.fwd_bytes + flow.bwd_bytes
@@ -352,12 +352,12 @@ class FlowBuilder:
 
         # TCP flags for first packet
         if pkt.protocol_name == "tcp":
-            flow.fwd_syn = bool(pkt.tcp_flags & TCP_SYN)
-            flow.fwd_ack = bool(pkt.tcp_flags & TCP_ACK)
-            flow.fwd_fin = bool(pkt.tcp_flags & TCP_FIN)
-            flow.fwd_rst = bool(pkt.tcp_flags & TCP_RST)
-            flow.fwd_psh = bool(pkt.tcp_flags & TCP_PSH)
-            flow.fwd_urg = bool(pkt.tcp_flags & TCP_URG)
+            flow.fwd_syn = int(bool(pkt.tcp_flags & TCP_SYN))
+            flow.fwd_ack = int(bool(pkt.tcp_flags & TCP_ACK))
+            flow.fwd_fin = int(bool(pkt.tcp_flags & TCP_FIN))
+            flow.fwd_rst = int(bool(pkt.tcp_flags & TCP_RST))
+            flow.fwd_psh = int(bool(pkt.tcp_flags & TCP_PSH))
+            flow.fwd_urg = int(bool(pkt.tcp_flags & TCP_URG))
 
         self._active[key] = (flow, pkt.timestamp, initiator_key)
 

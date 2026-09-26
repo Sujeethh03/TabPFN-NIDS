@@ -52,7 +52,7 @@ class CategoricalEncoder:
                 logger.warning("Column '%s' not in DataFrame, skipping", col)
                 continue
 
-            values = df[col].astype(str).values.reshape(-1, 1)
+            values = df[col].astype(str).to_numpy().reshape(-1, 1)
 
             if self.strategy == "ordinal":
                 enc = OrdinalEncoder(
@@ -97,7 +97,7 @@ class CategoricalEncoder:
             if col not in out.columns:
                 continue
 
-            values = out[col].astype(str).values.reshape(-1, 1)
+            values = out[col].astype(str).to_numpy().reshape(-1, 1)
 
             if self.strategy == "ordinal":
                 encoded = enc.transform(values).ravel()
