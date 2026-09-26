@@ -322,3 +322,33 @@ reproducibility:
   record_checksums: true
 
   record_package_versions: true
+
+
+# --------------------------------------------------------------------------
+# Dynamic Parallel & Ensemble Inference
+# --------------------------------------------------------------------------
+inference:
+
+  # Maximum rows processed per worker chunk
+  max_rows_per_worker: 10000
+
+  # Maximum parallel workers (null = automatic based on CPU cores)
+  max_workers: null
+
+  # Concurrency mechanism: "thread" (recommended for PyTorch CPU), "process", "sequential"
+  executor_type: "thread"
+
+  # Probability aggregation method for ensemble: "mean" or "weighted"
+  probability_aggregation: "mean"
+
+  # Classification decision threshold (Attack if P(Attack) >= threshold)
+  prediction_threshold: 0.5
+
+  # Enable ensemble when multiple models are available
+  enable_ensemble: true
+
+  # Include individual model probabilities in output CSV
+  include_per_model_probabilities: false
+
+  # Optional per-model weights (null = equal weighting)
+  weights: null
