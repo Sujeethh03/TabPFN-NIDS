@@ -139,7 +139,7 @@ rfc3986-validator==0.1.1
 rfc3987-syntax==1.1.0
 rpds-py==2026.6.3
 safetensors==0.8.0
-scapy-2.7.0
+scapy==2.7.0
 scikit-learn==1.9.0
 scipy==1.17.1
 seaborn==0.13.2
