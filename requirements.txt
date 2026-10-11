@@ -39,6 +39,7 @@ debugpy==1.8.21
 defusedxml==0.7.1
 einops==0.8.2
 executing==2.2.1
+fastapi==0.143.0
 fastjsonschema==2.22.2
 filelock==3.32.4
 fonttools==4.63.0
@@ -129,6 +130,7 @@ python-dateutil==2.9.0.post0
 python-docx==1.1.2
 python-dotenv==1.2.3
 python-json-logger==4.2.0
+python-multipart==0.0.32
 python-slugify==8.0.4
 PyYAML==6.0.3
 pyzmq==27.2.0
