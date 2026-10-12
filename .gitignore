@@ -1,5 +1,5 @@
 # =========================================================
-# Large PCAP datasets
+# Large PCAP datasets - DO NOT TRACK
 # =========================================================
 
 *.pcap
@@ -9,26 +9,19 @@
 !data/sample_traffic.pcap
 
 # =========================================================
-# Generated artifacts
+# Generated artifacts - DO NOT TRACK
 # =========================================================
 
-data/artifacts/**
-
-# Keep artifact directory structure if needed
-!data/artifacts/**/
-!data/artifacts/**/.gitkeep
+data/artifacts/
 
 # =========================================================
-# Results
+# Results - DO NOT TRACK
 # =========================================================
 
-outputs/
 results/
+outputs/
 logs/
 *.log
-
-# Keep report CSV files if they are intentionally tracked
-!reports/**/*.csv
 
 # =========================================================
 # Python
@@ -61,3 +54,5 @@ venv/
 
 !.gitkeep
 !**/.gitkeep
+# Node.js dependencies
+node_modules/

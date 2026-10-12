@@ -20,7 +20,7 @@ from tabpfn_nids.labeling.unsw_ground_truth import (
 # ============================================================
 
 PREDICTIONS = Path(
-    "results/pcap_analysis/11/11_predictions.csv"
+    "results/pcap_analysis/1/1_predictions.csv"
 )
 
 GT_FILES = [
@@ -31,7 +31,7 @@ GT_FILES = [
 ]
 
 OUTPUT = Path(
-    "results/pcap_analysis/11/11_evaluation.csv"
+    "results/pcap_analysis/1/1_evaluation.csv"
 )
 
 

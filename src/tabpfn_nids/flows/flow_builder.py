@@ -255,6 +255,42 @@ class FlowBuilder:
         for key in expired_keys:
             flow, _, _ = self._active.pop(key)
             self._close_flow(flow)
+    
+    def get_active_snapshots(self) -> list[FlowRecord]:
+        """Return snapshots of currently active flows.
+
+        Active flows are NOT closed or removed. A deep copy is returned so
+        the live packet-processing flow can continue to change independently
+        of the detection snapshot.
+
+        The snapshot is finalized enough for feature extraction:
+        - duration is calculated from start/end timestamps
+        - total packet/byte counts are synchronized
+        """
+        import copy
+
+        snapshots: list[FlowRecord] = []
+
+        for flow, _, _ in self._active.values():
+            snapshot = copy.deepcopy(flow)
+
+            # Keep derived fields consistent with a completed FlowRecord.
+            snapshot.duration = max(
+                0.0,
+                snapshot.end_time - snapshot.start_time,
+            )
+
+            snapshot.total_packets = (
+                snapshot.fwd_packets + snapshot.bwd_packets
+            )
+
+            snapshot.total_bytes = (
+                snapshot.fwd_bytes + snapshot.bwd_bytes
+            )
+
+            snapshots.append(snapshot)
+
+        return snapshots
 
     def add_packet(self, pkt: PacketRecord) -> None:
         """Add a single packet to the flow table.

@@ -157,6 +157,30 @@ class ReproducibilityConfig:
 
 
 @dataclass
+class CaptureConfig:
+    interface: str | None = None
+    tshark_path: str = "tshark"
+    packet_queue_size: int = 10_000
+    bpf_filter: str | None = None
+    packet_batch_size: int = 500
+
+
+@dataclass
+class DetectionConfig:
+    window_size_seconds: float = 10.0
+    step_seconds: float = 5.0
+    flow_timeout_seconds: float = 10.0
+    idle_timeout_seconds: float = 10.0
+
+
+@dataclass
+class WebSocketConfig:
+    enabled: bool = True
+    history_limit: int = 50
+    broadcast_interval_seconds: float = 1.0
+
+
+@dataclass
 class InferenceConfig:
     max_rows_per_worker: int = 10_000
     max_workers: int | None = None
@@ -166,6 +190,7 @@ class InferenceConfig:
     enable_ensemble: bool = True
     include_per_model_probabilities: bool = False
     weights: dict[str, float] | None = None
+    queue_size: int = 100
 
 
 @dataclass
@@ -189,6 +214,9 @@ class PipelineConfig:
     performance: PerformanceConfig
     reproducibility: ReproducibilityConfig
     inference: InferenceConfig = field(default_factory=InferenceConfig)
+    capture: CaptureConfig = field(default_factory=CaptureConfig)
+    detection: DetectionConfig = field(default_factory=DetectionConfig)
+    websocket: WebSocketConfig = field(default_factory=WebSocketConfig)
 
 
 def _resolve_paths(raw: dict[str, str]) -> PathsConfig:
@@ -223,9 +251,20 @@ def load_config(path: Path | str | None = None) -> PipelineConfig:
         )
 
     with open(config_path, "r", encoding="utf-8") as f:
-        raw = yaml.safe_load(f)
+        raw = yaml.safe_load(f) or {}
 
     logger.info("Loaded pipeline config from %s", config_path)
+
+    capture_cfg = _build_section(CaptureConfig, raw.get("capture"))
+    detection_cfg = _build_section(DetectionConfig, raw.get("detection"))
+    websocket_cfg = _build_section(WebSocketConfig, raw.get("websocket"))
+
+    # Environment variable overrides
+    import os
+    if os.environ.get("TSHARK_PATH"):
+        capture_cfg.tshark_path = os.environ["TSHARK_PATH"]
+    if os.environ.get("CAPTURE_INTERFACE"):
+        capture_cfg.interface = os.environ["CAPTURE_INTERFACE"]
 
     return PipelineConfig(
         paths=_resolve_paths(raw.get("paths", {})),
@@ -245,4 +284,8 @@ def load_config(path: Path | str | None = None) -> PipelineConfig:
         performance=_build_section(PerformanceConfig, raw.get("performance")),
         reproducibility=_build_section(ReproducibilityConfig, raw.get("reproducibility")),
         inference=_build_section(InferenceConfig, raw.get("inference")),
+        capture=capture_cfg,
+        detection=detection_cfg,
+        websocket=websocket_cfg,
     )
+

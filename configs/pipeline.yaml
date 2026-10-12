@@ -351,4 +351,62 @@ inference:
   include_per_model_probabilities: false
 
   # Optional per-model weights (null = equal weighting)
-  weights: null
+  weights: null
+
+  # Queue size for inference jobs
+  queue_size: 100
+
+
+# --------------------------------------------------------------------------
+# Live Packet Capture (Windows TShark / Npcap)
+# --------------------------------------------------------------------------
+capture:
+
+  # Network interface identifier (friendly name like "Wi-Fi", index like "4", or null to select at runtime)
+  interface: null
+
+  # TShark executable path ("tshark" or full path like "C:\\Program Files\\Wireshark\\tshark.exe")
+  tshark_path: "tshark"
+
+  # Maximum packets buffered in memory before dropping with backpressure warning
+  packet_queue_size: 10000
+
+  # Optional BPF capture filter
+  bpf_filter: null
+
+  # Packet batch size
+  packet_batch_size: 500
+
+
+# --------------------------------------------------------------------------
+# Real-time Sliding Window Detection
+# --------------------------------------------------------------------------
+detection:
+
+  # Duration of each sliding window in seconds
+  window_size_seconds: 10.0
+
+  # Window evaluation step interval in seconds
+  step_seconds: 5.0
+
+  # Flow timeout in seconds (inactive flows finalized and evaluated)
+  flow_timeout_seconds: 10.0
+
+  # Idle timeout in seconds
+  idle_timeout_seconds: 10.0
+
+
+# --------------------------------------------------------------------------
+# WebSocket & Dashboard Event Streaming
+# --------------------------------------------------------------------------
+websocket:
+
+  # Enable live WebSocket streaming
+  enabled: true
+
+  # Number of recent detection events kept in circular buffer for connection ack
+  history_limit: 50
+
+  # Periodic capture status broadcast interval in seconds
+  broadcast_interval_seconds: 1.0
+

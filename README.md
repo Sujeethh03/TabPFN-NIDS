@@ -98,6 +98,21 @@ Writes a timestamped CSV to `reports/`. Expect **F1 ≈ 0.75, ROC-AUC ≈ 0.95**
 Budget the runtime first — see [§3](#3-run-the-experiments); the same command
 without `--test-size` and `--n-estimators` runs for hours.
 
+### Windows live monitoring
+
+Install Wireshark with Npcap, verify `tshark --version` and `tshark -D`, then
+install the live extras and start the single-screen monitor:
+
+```powershell
+pip install -e ".[live]"
+python main.py --live
+```
+
+Use `python main.py --live --interface 1` to select a specific TShark interface.
+The capture, flow builder, feature pipeline, fitted preprocessing artifacts, and
+TabPFN inference are shared with the API implementation. See
+[docs/LIVE_MONITORING.md](docs/LIVE_MONITORING.md) for setup and troubleshooting.
+
 For the full reproduction guide — hardware requirements, dataset acquisition,
 per-experiment expected outputs, tolerance bands and troubleshooting — see
 **[docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md)**.
