@@ -653,6 +653,11 @@
       padding-top: 36px;
     }
 
+    #screen-history {
+      display: none;
+      padding-top: 36px;
+    }
+
     .report-header {
       display: flex;
       align-items: flex-start;
@@ -1222,7 +1227,10 @@
         <div class="logo-icon">🛡️</div>
         <div class="logo-name">TabPFN<span>-NIDS</span></div>
       </a>
-      <span class="header-badge">PCAP Network Intrusion Analysis</span>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-outline" id="saved-analyses-btn">Saved analyses</button>
+        <span class="header-badge">PCAP Network Intrusion Analysis</span>
+      </div>
     </div>
   </header>
 
@@ -1380,9 +1388,15 @@
           <div class="report-meta" id="report-meta">—</div>
         </div>
         <div class="report-actions">
+          <button class="btn btn-outline" id="report-history-btn">Saved analyses</button>
           <button class="btn btn-outline" id="new-analysis-btn">↩ New Analysis</button>
           <a class="btn btn-outline" id="download-csv-btn" href="#" download>⬇ Download CSV</a>
         </div>
+      </div>
+
+      <div class="error-card" id="database-persistence-warning">
+        <div class="error-card-title">⚠️ Analysis was not saved to the database</div>
+        <div class="error-card-msg" id="database-persistence-error"></div>
       </div>
 
       <!-- ── DETECTION SUMMARY ── -->
@@ -1503,6 +1517,77 @@
 
     </section>
 
+    <section id="screen-history">
+      <div class="report-header">
+        <div class="report-header-left">
+          <h1>🗄️ Saved Analyses</h1>
+          <div class="report-meta">PCAP reports and flow predictions stored in PostgreSQL.</div>
+        </div>
+        <div class="report-actions">
+          <button class="btn btn-outline" id="history-refresh-btn">↻ Refresh</button>
+          <button class="btn btn-outline" id="history-home-btn">← New analysis</button>
+        </div>
+      </div>
+
+      <div class="error-card" id="history-error">
+        <div class="error-card-title">⚠️ Could not load saved analyses</div>
+        <div class="error-card-msg" id="history-error-msg"></div>
+      </div>
+
+      <div class="table-wrap mt-4">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>PCAP File</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th>Total Flows</th>
+              <th>Normal</th>
+              <th>Attacks</th>
+              <th>Duration</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination">
+        <span id="history-count">—</span>
+      </div>
+
+      <section id="saved-analysis-detail" class="hidden mt-8">
+        <div class="section-head">
+          <div class="section-head-icon">📋</div>
+          <span class="section-head-title" id="saved-analysis-title">Flow Predictions</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Flow ID</th>
+                <th>Source IP</th>
+                <th>Source Port</th>
+                <th>Destination IP</th>
+                <th>Destination Port</th>
+                <th>Protocol</th>
+                <th>Prediction</th>
+                <th>Normal Probability</th>
+                <th>Attack Probability</th>
+              </tr>
+            </thead>
+            <tbody id="saved-predictions-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pagination">
+          <span id="saved-predictions-count">—</span>
+          <div class="page-btns">
+            <button class="page-btn" id="saved-predictions-prev">‹ Previous</button>
+            <button class="page-btn" id="saved-predictions-next">Next ›</button>
+          </div>
+        </div>
+      </section>
+    </section>
+
   </div><!-- /page -->
 
 
@@ -1529,14 +1614,141 @@
     let currentPage = 1;
     let currentFilter = 'all';
     let currentSearch = '';
+    let savedAnalyses = [];
+    let selectedAnalysisId = null;
+    let selectedPredictionOffset = 0;
+    const savedPredictionPageSize = 50;
 
     /* ================================================================
        SCREEN SWITCHING
     ================================================================ */
     function showScreen(name) {
-      ['screen-upload', 'screen-progress', 'screen-report'].forEach(id => {
+      ['screen-upload', 'screen-progress', 'screen-report', 'screen-history'].forEach(id => {
         $(id).style.display = (id === `screen-${name}`) ? 'block' : 'none';
       });
+    }
+
+    $('saved-analyses-btn').addEventListener('click', () => { void openSavedAnalyses(); });
+    $('report-history-btn').addEventListener('click', () => { void openSavedAnalyses(); });
+    $('history-refresh-btn').addEventListener('click', () => { void loadSavedAnalyses(); });
+    $('history-home-btn').addEventListener('click', resetToUpload);
+    $('history-tbody').addEventListener('click', event => {
+      const button = event.target.closest('[data-analysis-id]');
+      if (button) {
+        selectedPredictionOffset = 0;
+        void loadSavedPredictions(button.dataset.analysisId);
+      }
+    });
+    $('saved-predictions-prev').addEventListener('click', () => {
+      if (selectedPredictionOffset >= savedPredictionPageSize) {
+        selectedPredictionOffset -= savedPredictionPageSize;
+        void loadSavedPredictions(selectedAnalysisId);
+      }
+    });
+    $('saved-predictions-next').addEventListener('click', () => {
+      selectedPredictionOffset += savedPredictionPageSize;
+      void loadSavedPredictions(selectedAnalysisId);
+    });
+
+    async function openSavedAnalyses() {
+      showScreen('history');
+      await loadSavedAnalyses();
+    }
+
+    async function loadSavedAnalyses() {
+      $('history-error').classList.remove('show');
+      $('history-tbody').innerHTML = '<tr><td colspan="8">Loading saved analyses…</td></tr>';
+      try {
+        const res = await fetch(`${API}/api/analyses?limit=100`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail || 'Database service request failed.');
+        }
+        savedAnalyses = await res.json();
+        renderSavedAnalyses();
+      } catch (err) {
+        console.error('Saved analyses error:', err);
+        $('history-tbody').innerHTML = '';
+        $('history-count').textContent = 'History is unavailable.';
+        $('history-error-msg').textContent = sanitise(err.message);
+        $('history-error').classList.add('show');
+      }
+    }
+
+    function renderSavedAnalyses() {
+      $('history-count').textContent = `${fmtNum(savedAnalyses.length)} saved analysis${savedAnalyses.length === 1 ? '' : 'es'}`;
+      if (!savedAnalyses.length) {
+        $('history-tbody').innerHTML = '<tr><td colspan="8">No saved analyses yet.</td></tr>';
+        return;
+      }
+      $('history-tbody').innerHTML = savedAnalyses.map(analysis => `
+        <tr>
+          <td>${escapeHtml(analysis.pcapFilename)}</td>
+          <td>${escapeHtml(analysis.status)}</td>
+          <td>${escapeHtml(new Date(analysis.createdAt).toLocaleString())}</td>
+          <td>${fmtNum(analysis.totalFlows)}</td>
+          <td>${fmtNum(analysis.normalFlows)}</td>
+          <td>${fmtNum(analysis.attackFlows)}</td>
+          <td>${analysis.durationSeconds == null ? '—' : `${Number(analysis.durationSeconds).toFixed(1)}s`}</td>
+          <td><button class="page-btn" data-analysis-id="${escapeHtml(analysis.id)}">View flows</button></td>
+        </tr>`).join('');
+    }
+
+    async function loadSavedPredictions(analysisId) {
+      if (!analysisId) return;
+      selectedAnalysisId = analysisId;
+      const analysis = savedAnalyses.find(item => item.id === analysisId);
+      $('saved-analysis-title').textContent = `Flow Predictions · ${analysis?.pcapFilename || 'Analysis'}`;
+      $('saved-analysis-detail').classList.remove('hidden');
+      $('saved-predictions-tbody').innerHTML = '<tr><td colspan="9">Loading predictions…</td></tr>';
+      try {
+        const params = new URLSearchParams({
+          skip: selectedPredictionOffset,
+          limit: savedPredictionPageSize,
+        });
+        const res = await fetch(`${API}/api/analyses/${encodeURIComponent(analysisId)}/predictions?${params}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail || 'Could not load saved predictions.');
+        }
+        const predictions = await res.json();
+        if (selectedPredictionOffset > 0 && predictions.length === 0) {
+          selectedPredictionOffset = Math.max(0, selectedPredictionOffset - savedPredictionPageSize);
+          return loadSavedPredictions(analysisId);
+        }
+        $('saved-predictions-tbody').innerHTML = predictions.length
+          ? predictions.map(prediction => `
+            <tr>
+              <td>${escapeHtml(prediction.flowId ?? '—')}</td>
+              <td>${escapeHtml(prediction.srcIp ?? '—')}</td>
+              <td>${escapeHtml(prediction.srcPort ?? '—')}</td>
+              <td>${escapeHtml(prediction.dstIp ?? '—')}</td>
+              <td>${escapeHtml(prediction.dstPort ?? '—')}</td>
+              <td>${escapeHtml(prediction.protocol ?? '—')}</td>
+              <td>${escapeHtml(prediction.predictionLabel)}</td>
+              <td>${formatProbability(prediction.normalProbability)}</td>
+              <td>${formatProbability(prediction.attackProbability)}</td>
+            </tr>`).join('')
+          : '<tr><td colspan="9">No saved flow predictions.</td></tr>';
+        $('saved-predictions-count').textContent = predictions.length
+          ? `Showing ${selectedPredictionOffset + 1}–${selectedPredictionOffset + predictions.length}`
+          : 'No predictions';
+        $('saved-predictions-prev').disabled = selectedPredictionOffset === 0;
+        $('saved-predictions-next').disabled = predictions.length < savedPredictionPageSize;
+      } catch (err) {
+        console.error('Saved predictions error:', err);
+        $('saved-predictions-tbody').innerHTML = `<tr><td colspan="9">${escapeHtml(sanitise(err.message))}</td></tr>`;
+      }
+    }
+
+    function formatProbability(value) {
+      return value == null ? '—' : `${(Number(value) * 100).toFixed(1)}%`;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      })[char]);
     }
 
     /* ================================================================
@@ -1752,6 +1964,13 @@
       const model = r.model || {};
       const perf = r.performance || {};
       const proc = r.processing_performance || {};
+      const databasePersistence = r.database_persistence || {};
+      if (databasePersistence.error) {
+        $('database-persistence-error').textContent = databasePersistence.error;
+        $('database-persistence-warning').classList.add('show');
+      } else {
+        $('database-persistence-warning').classList.remove('show');
+      }
 
       const total = preds.total || 0;
       const normal = preds.normal_count || 0;

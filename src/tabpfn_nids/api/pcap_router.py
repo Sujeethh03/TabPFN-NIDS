@@ -339,14 +339,52 @@ def _run_analysis(job_id: str) -> None:
         # ------------------------------------------------------------------
         # 9. Finalise
         # ------------------------------------------------------------------
+
         job["report_path"] = str(json_report_path)
         job["csv_path"] = str(csv_path)
         job["report_data"] = report_data
-        # Store flows for paginated table endpoint (keep only needed columns)
+
+        # Keep the existing flow table for the dashboard.
         job["flows_df"] = _prepare_flows_table(output)
+
+        # Persist the analysis and predictions in PostgreSQL.
+        try:
+            from tabpfn_nids.api.database_client import persist_analysis
+
+            database_analysis_id = persist_analysis(
+                pcap_filename=pcap_path.name,
+                output=output,
+                duration_seconds=total_analysis_seconds,
+            )
+
+            job["database_analysis_id"] = database_analysis_id
+            job["database_persistence_error"] = None
+
+            logger.info(
+                "Job %s saved to database as analysis %s",
+                job_id,
+                database_analysis_id,
+            )
+
+        except Exception:
+            logger.exception(
+                "Job %s completed, but database persistence failed",
+                job_id,
+            )
+            job["database_persistence_error"] = (
+                "Analysis succeeded, but saving to the database failed."
+            )
+
+        # Preserve the existing successful completion behavior.
         job["completed_at"] = datetime.now().isoformat()
         _set_stage(job_id, JobStatus.COMPLETE)
-        logger.info("Job %s completed in %.1fs", job_id, total_analysis_seconds)
+
+        logger.info(
+            "Job %s completed in %.1fs",
+            job_id,
+            total_analysis_seconds,
+        )
+
 
     except Exception as exc:
         logger.error("Job %s failed: %s", job_id, exc, exc_info=True)
@@ -616,6 +654,13 @@ async def get_report(job_id: str):
             report_data = json.load(f)
     if report_data is None:
         raise HTTPException(status_code=500, detail="Report data unavailable.")
+    report_data = {
+        **report_data,
+        "database_persistence": {
+            "analysis_id": job.get("database_analysis_id"),
+            "error": job.get("database_persistence_error"),
+        },
+    }
     return JSONResponse(content=report_data)
 
 
