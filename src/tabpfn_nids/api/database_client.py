@@ -69,6 +69,14 @@ def get_analysis_history(limit: int) -> list[dict[str, Any]]:
     return result
 
 
+def get_analysis_by_id(analysis_id: str) -> dict[str, Any]:
+    """Load a single saved analysis from the database API."""
+    result = _request(f"/api/analyses/{quote(analysis_id, safe='')}")
+    if not isinstance(result, dict):
+        raise RuntimeError("Database API returned an invalid analysis record")
+    return result
+
+
 def get_analysis_predictions(
     analysis_id: str,
     skip: int,

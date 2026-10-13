@@ -1322,7 +1322,7 @@
 ============================================================ -->
   <header class="site-header">
     <div class="header-inner">
-      <a class="logo" href="#">
+      <a class="logo" href="#upload" id="logo-home-btn">
         <div class="logo-icon">🛡️</div>
         <div class="logo-name">TabPFN<span>-NIDS</span></div>
       </a>
@@ -1487,6 +1487,7 @@
           <div class="report-meta" id="report-meta">—</div>
         </div>
         <div class="report-actions">
+          <button class="btn btn-outline" id="report-back-saved-btn" style="display:none;">← Saved analyses</button>
           <button class="btn btn-outline" id="report-history-btn">Saved analyses</button>
           <button class="btn btn-outline" id="new-analysis-btn">↩ New Analysis</button>
           <a class="btn btn-outline" id="download-csv-btn" href="#" download>⬇ CSV</a>
@@ -1509,6 +1510,16 @@
       <div class="stat-grid" id="stat-grid"></div>
 
       <hr class="divider">
+
+      <!-- ── EVALUATION METRICS ── -->
+      <div id="evaluation-metrics-section" class="hidden">
+        <div class="section-head">
+          <div class="section-head-icon">📐</div>
+          <span class="section-head-title">Evaluation Metrics</span>
+        </div>
+        <div class="stat-grid" id="metrics-stat-grid"></div>
+        <hr class="divider">
+      </div>
 
       <!-- ── ATTACK CATEGORY BREAKDOWN ── -->
       <div id="multiclass-section">
@@ -1675,6 +1686,7 @@
           <div class="report-meta">PCAP reports and flow predictions stored in PostgreSQL.</div>
         </div>
         <div class="report-actions">
+          <button class="btn btn-outline" id="history-back-btn">← Back</button>
           <button class="btn btn-outline" id="history-refresh-btn">↻ Refresh</button>
           <button class="btn btn-outline" id="history-home-btn">← New analysis</button>
         </div>
@@ -1774,6 +1786,13 @@
     const $ = id => document.getElementById(id);
 
     /* ── State ── */
+    let currentScreen = 'upload';
+    let previousScreen = null;
+    let currentReportMode = null; // 'live' | 'saved'
+    let currentSavedAnalysis = null;
+    let currentSavedPredictions = [];
+    let lastLiveReport = null;
+
     let jobId = null;
     let pollTimer = null;
     let elapsedTimer = null;
@@ -1794,25 +1813,87 @@
     const savedPredictionPageSize = 50;
 
     /* ================================================================
-       SCREEN SWITCHING
+       SCREEN SWITCHING & NAVIGATION
     ================================================================ */
-    function showScreen(name) {
+    function showScreen(name, updateHistory = true) {
+      if (currentScreen !== name) {
+        previousScreen = currentScreen;
+        currentScreen = name;
+      }
       ['screen-upload', 'screen-progress', 'screen-report', 'screen-history'].forEach(id => {
-        $(id).style.display = (id === `screen-${name}`) ? 'block' : 'none';
+        const el = $(id);
+        if (el) el.style.display = (id === `screen-${name}`) ? 'block' : 'none';
       });
+
+      if (updateHistory) {
+        let hash = '#upload';
+        if (name === 'history') hash = '#history';
+        else if (name === 'report') {
+          if (currentReportMode === 'saved' && currentSavedAnalysis) {
+            hash = `#analysis/${encodeURIComponent(currentSavedAnalysis.id)}`;
+          } else if (jobId) {
+            hash = `#report/${encodeURIComponent(jobId)}`;
+          } else {
+            hash = '#report';
+          }
+        } else if (name === 'progress') {
+          hash = '#progress';
+        }
+        if (window.location.hash !== hash) {
+          history.pushState({ screen: name, mode: currentReportMode, analysisId: currentSavedAnalysis?.id, jobId }, '', hash);
+        }
+      }
+    }
+
+    function goBackFromHistory() {
+      if (previousScreen && previousScreen !== 'history') {
+        if (previousScreen === 'report') {
+          if (currentReportMode === 'saved' && currentSavedAnalysis) {
+            showScreen('report');
+            return;
+          }
+          if (lastLiveReport || jobId) {
+            showScreen('report');
+            return;
+          }
+        }
+        if (previousScreen === 'upload') {
+          showScreen('upload');
+          return;
+        }
+      }
+
+      // Check if browser history has a referrer/entry
+      if (window.history.length > 1 && document.referrer) {
+        window.history.back();
+        return;
+      }
+
+      // Fallback for direct navigation or when previous state is unavailable
+      showScreen('upload');
     }
 
     $('saved-analyses-btn').addEventListener('click', () => { void openSavedAnalyses(); });
     $('report-history-btn').addEventListener('click', () => { void openSavedAnalyses(); });
+    $('report-back-saved-btn').addEventListener('click', () => { void openSavedAnalyses(); });
     $('history-refresh-btn').addEventListener('click', () => { void loadSavedAnalyses(); });
+    $('history-back-btn').addEventListener('click', goBackFromHistory);
     $('history-home-btn').addEventListener('click', resetToUpload);
+    const logoHome = $('logo-home-btn');
+    if (logoHome) {
+      logoHome.addEventListener('click', (e) => {
+        e.preventDefault();
+        showScreen('upload');
+      });
+    }
+
     $('history-tbody').addEventListener('click', event => {
       const button = event.target.closest('[data-analysis-id]');
       if (button) {
-        selectedPredictionOffset = 0;
-        void loadSavedPredictions(button.dataset.analysisId);
+        void openSavedAnalysis(button.dataset.analysisId, button);
       }
     });
+
     $('saved-predictions-prev').addEventListener('click', () => {
       if (selectedPredictionOffset >= savedPredictionPageSize) {
         selectedPredictionOffset -= savedPredictionPageSize;
@@ -1824,8 +1905,8 @@
       void loadSavedPredictions(selectedAnalysisId);
     });
 
-    async function openSavedAnalyses() {
-      showScreen('history');
+    async function openSavedAnalyses(updateHistory = true) {
+      showScreen('history', updateHistory);
       await loadSavedAnalyses();
     }
 
@@ -1864,8 +1945,298 @@
           <td>${fmtNum(analysis.normalFlows)}</td>
           <td>${fmtNum(analysis.attackFlows)}</td>
           <td>${analysis.durationSeconds == null ? '—' : `${Number(analysis.durationSeconds).toFixed(1)}s`}</td>
-          <td><button class="page-btn" data-analysis-id="${escapeHtml(analysis.id)}">View flows</button></td>
+          <td><button class="page-btn view-flows-btn" data-analysis-id="${escapeHtml(analysis.id)}">View flows</button></td>
         </tr>`).join('');
+    }
+
+    async function openSavedAnalysis(analysisId, triggerButton = null, updateHistory = true) {
+      if (!analysisId) return;
+      if (triggerButton) {
+        triggerButton.textContent = 'Loading…';
+        triggerButton.disabled = true;
+      }
+      $('history-error').classList.remove('show');
+
+      try {
+        // 1. Retrieve the analysis record
+        let analysis = savedAnalyses.find(item => item.id === analysisId);
+        if (!analysis || !analysis.metrics) {
+          try {
+            const res = await fetch(`${API}/api/analyses/${encodeURIComponent(analysisId)}`);
+            if (res.ok) {
+              analysis = await res.json();
+            }
+          } catch (e) {
+            console.warn('Direct analysis fetch failed, falling back to history list:', e);
+          }
+        }
+        if (!analysis) {
+          const listRes = await fetch(`${API}/api/analyses?limit=100`);
+          if (listRes.ok) {
+            savedAnalyses = await listRes.json();
+            analysis = savedAnalyses.find(item => item.id === analysisId);
+          }
+        }
+        if (!analysis) {
+          throw new Error(`Analysis "${analysisId}" not found in database.`);
+        }
+
+        // 2. Load flow predictions for this analysis
+        const limit = 500;
+        let skip = 0;
+        const allPredictions = [];
+
+        while (true) {
+          const params = new URLSearchParams({ skip, limit });
+          const res = await fetch(`${API}/api/analyses/${encodeURIComponent(analysisId)}/predictions?${params}`);
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body.detail || 'Could not load saved predictions from database.');
+          }
+          const batch = await res.json();
+          allPredictions.push(...batch);
+
+          if (batch.length < limit || allPredictions.length >= (analysis.totalFlows || 0)) {
+            break;
+          }
+          skip += limit;
+          if (skip >= 2500) break;
+        }
+
+        // 3. Normalize prediction records
+        const mappedPredictions = allPredictions.map((p, idx) => ({
+          flow_id: p.flowId ?? (idx + 1),
+          src_ip: p.srcIp ?? '—',
+          dst_ip: p.dstIp ?? '—',
+          src_port: p.srcPort ?? '—',
+          dst_port: p.dstPort ?? '—',
+          protocol: p.protocol ?? '—',
+          prediction_label: p.predictionLabel || (Number(p.attackProbability) > 0.5 ? 'Attack' : 'Normal'),
+          normal_probability: p.normalProbability,
+          attack_probability: p.attackProbability,
+          duration: null,
+          predicted_attack_category: null,
+          prediction_status: 'Classified',
+        }));
+
+        currentReportMode = 'saved';
+        currentSavedAnalysis = analysis;
+        currentSavedPredictions = mappedPredictions;
+        selectedAnalysisId = analysisId;
+
+        // Reset filter/search
+        currentSearch = '';
+        currentFilter = 'all';
+        currentCategory = 'all';
+        currentStatus = 'all';
+        $('flow-search').value = '';
+        document.querySelectorAll('.filter-tab').forEach(t => {
+          t.classList.toggle('active', t.dataset.filter === 'all');
+        });
+
+        renderSavedReport(analysis, mappedPredictions);
+        showScreen('report', updateHistory);
+      } catch (err) {
+        console.error('Failed to open saved analysis:', err);
+        $('history-error-msg').textContent = sanitise(err.message);
+        $('history-error').classList.add('show');
+      } finally {
+        if (triggerButton) {
+          triggerButton.textContent = 'View flows';
+          triggerButton.disabled = false;
+        }
+      }
+    }
+
+    function renderSavedReport(analysis, predictions) {
+      $('database-persistence-warning').classList.remove('show');
+      $('report-back-saved-btn').style.display = 'inline-flex';
+      $('report-history-btn').style.display = 'none';
+
+      const total = analysis.totalFlows || 0;
+      const normal = analysis.normalFlows || 0;
+      const attack = analysis.attackFlows || 0;
+      const nrmPct = total > 0 ? (normal / total) * 100 : 0;
+      const atkPct = total > 0 ? (attack / total) * 100 : 0;
+      const analysisTime = analysis.durationSeconds != null ? Number(analysis.durationSeconds).toFixed(1) : '—';
+
+      // Meta line
+      const genAt = analysis.createdAt ? new Date(analysis.createdAt).toLocaleString() : '—';
+      $('report-meta').textContent = `${escapeHtml(analysis.pcapFilename || '—')}  ·  Saved on ${genAt}`;
+
+      // Detection Summary Cards
+      const cards = [
+        { label: 'Total Flows', value: fmtNum(total), cls: '' },
+        { label: 'Normal Traffic', value: fmtNum(normal), sub: nrmPct.toFixed(1) + '%', cls: 'green' },
+        { label: 'Attacks Detected', value: fmtNum(attack), sub: atkPct.toFixed(1) + '% malicious flows', cls: attack > 0 ? 'red' : 'green' },
+        { label: 'Status', value: escapeHtml(analysis.status), cls: analysis.status === 'COMPLETED' ? 'green' : 'amber' },
+        { label: 'Analysis Time', value: analysisTime !== '—' ? analysisTime + 's' : '—', cls: '' },
+      ];
+      $('stat-grid').innerHTML = cards.map(c => `
+        <div class="stat-card ${c.cls}">
+          <div class="stat-label">${c.label}</div>
+          <div class="stat-value">${c.value}</div>
+          ${c.sub ? `<div class="stat-sub">${c.sub}</div>` : ''}
+        </div>`).join('');
+
+      // Evaluation Metrics
+      const m = analysis.metrics;
+      const metricsGrid = $('metrics-stat-grid');
+      const metricsSec = $('evaluation-metrics-section');
+      if (m && (m.accuracy != null || m.precision != null || m.recall != null || m.f1Score != null || m.rocAuc != null)) {
+        const metricCards = [];
+        if (m.accuracy != null) metricCards.push({ label: 'Accuracy', value: (m.accuracy * 100).toFixed(1) + '%' });
+        if (m.precision != null) metricCards.push({ label: 'Precision', value: (m.precision * 100).toFixed(1) + '%' });
+        if (m.recall != null) metricCards.push({ label: 'Recall', value: (m.recall * 100).toFixed(1) + '%' });
+        if (m.f1Score != null) metricCards.push({ label: 'F1 Score', value: (m.f1Score * 100).toFixed(1) + '%' });
+        if (m.rocAuc != null) metricCards.push({ label: 'ROC-AUC', value: (m.rocAuc * 100).toFixed(1) + '%' });
+
+        metricsGrid.innerHTML = metricCards.map(c => `
+          <div class="stat-card green">
+            <div class="stat-label">${c.label}</div>
+            <div class="stat-value">${c.value}</div>
+          </div>`).join('');
+        metricsSec.classList.remove('hidden');
+      } else {
+        metricsSec.classList.add('hidden');
+      }
+
+      // Hide multiclass section for saved records
+      $('multiclass-section').classList.add('hidden');
+
+      // File info table
+      const compAt = analysis.completedAt ? new Date(analysis.completedAt).toLocaleString() : '—';
+      const infoRows = [
+        ['Filename', escapeHtml(analysis.pcapFilename || '—')],
+        ['Database ID', escapeHtml(analysis.id)],
+        ['Status', escapeHtml(analysis.status)],
+        ['Total Flows', fmtNum(total)],
+        ['Normal Flows', fmtNum(normal)],
+        ['Attack Flows', fmtNum(attack)],
+        ['Analysis Time', analysisTime !== '—' ? analysisTime + ' seconds' : '—'],
+        ['Created', genAt],
+      ];
+      if (compAt !== '—') infoRows.push(['Completed', compAt]);
+      $('info-table').innerHTML = infoRows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+
+      // Donut chart
+      const CIRC = 2 * Math.PI * 50;
+      const normArc = (normal / (total || 1)) * CIRC;
+      const atkArc = (attack / (total || 1)) * CIRC;
+      $('donut-normal').setAttribute('stroke-dasharray', `${normArc} ${CIRC}`);
+      $('donut-normal').setAttribute('stroke-dashoffset', '0');
+      $('donut-attack').setAttribute('stroke-dasharray', `${atkArc} ${CIRC}`);
+      $('donut-attack').setAttribute('stroke-dashoffset', String(-normArc));
+
+      $('donut-legend').innerHTML = [
+        { color: '#16A34A', label: 'Normal', count: normal, pct: nrmPct },
+        { color: '#DC2626', label: 'Attack', count: attack, pct: atkPct },
+      ].map(it => `
+        <div class="legend-item">
+          <div class="legend-dot" style="background:${it.color}"></div>
+          <span class="legend-name">${it.label}</span>
+          <span class="legend-val">${fmtNum(it.count)}
+            <small style="color:var(--text-muted)">(${it.pct.toFixed(1)}%)</small></span>
+        </div>`).join('');
+
+      // Protocol distribution
+      const protDist = {};
+      predictions.forEach(p => {
+        const proto = p.protocol ? String(p.protocol) : 'Unknown';
+        protDist[proto] = (protDist[proto] || 0) + 1;
+      });
+      const protEntries = Object.entries(protDist).sort((a, b) => b[1] - a[1]);
+      if (protEntries.length) {
+        const maxP = protEntries[0][1] || 1;
+        $('protocol-bars').innerHTML = protEntries.slice(0, 8).map(([proto, cnt]) => {
+          const pct = ((cnt / (total || 1)) * 100).toFixed(1);
+          const barW = ((cnt / maxP) * 100).toFixed(1);
+          return `
+            <div class="bar-row">
+              <div class="bar-label"><span>${escapeHtml(proto)}</span><span>${fmtNum(cnt)} (${pct}%)</span></div>
+              <div class="bar-track"><div class="bar-fill" style="width:${barW}%"></div></div>
+            </div>`;
+        }).join('');
+        $('protocol-section').classList.remove('hidden');
+      } else {
+        $('protocol-section').classList.add('hidden');
+      }
+
+      // Prediction confidence
+      let sumNorm = 0, countNorm = 0;
+      let sumAtk = 0, countAtk = 0;
+      predictions.forEach(p => {
+        if (p.normal_probability != null) { sumNorm += Number(p.normal_probability); countNorm++; }
+        if (p.attack_probability != null) { sumAtk += Number(p.attack_probability); countAtk++; }
+      });
+      const probItems = [];
+      if (countNorm > 0) probItems.push({ label: 'Avg Normal Probability', value: sumNorm / countNorm, color: '#16A34A' });
+      if (countAtk > 0) probItems.push({ label: 'Avg Attack Probability', value: sumAtk / countAtk, color: '#DC2626' });
+      if (countNorm > 0 && countAtk > 0) probItems.push({ label: 'Avg Confidence', value: Math.max(sumNorm / countNorm, sumAtk / countAtk), color: '#16A34A' });
+      probItems.push({ label: 'Attack Rate', value: atkPct / 100, color: atkPct > 0 ? '#DC2626' : '#16A34A' });
+
+      $('prob-grid').innerHTML = probItems.map(p => `
+        <div class="prob-card">
+          <div class="prob-label">${p.label}</div>
+          <div class="prob-value" style="color:${p.color}">${(p.value * 100).toFixed(1)}%</div>
+          <div class="prob-bar-track">
+            <div class="prob-bar-fill" style="width:${(p.value * 100).toFixed(1)}%;background:${p.color}"></div>
+          </div>
+        </div>`).join('');
+
+      // Model and Processing Performance
+      $('model-kv').innerHTML = [
+        ['Architecture', 'TabPFN Prior-Data Transformer'],
+        ['Task', 'Binary Network Intrusion Detection'],
+        ['Database ID', escapeHtml(analysis.id)],
+        ['Storage', 'PostgreSQL / Prisma Database Service'],
+        ['Classes', 'Normal, Attack'],
+      ].map(([k, v]) => `<div class="kv-row"><span class="kv-key">${k}</span><span class="kv-val">${v}</span></div>`).join('');
+
+      $('perf-kv').innerHTML = [
+        ['Analysis Duration', analysisTime !== '—' ? analysisTime + 's' : '—'],
+        ['Stored Flow Count', fmtNum(total)],
+        ['Archive Status', escapeHtml(analysis.status)],
+      ].map(([k, v]) => `<div class="kv-row"><span class="kv-key">${k}</span><span class="kv-val">${v}</span></div>`).join('');
+      $('perf-kv-card').classList.remove('hidden');
+
+      // Setup downloads for CSV and JSON
+      setupSavedDownloads(analysis, predictions);
+
+      // Setup and load flow table
+      tableCols = ['flow_id', 'src_ip', 'dst_ip', 'src_port', 'dst_port', 'protocol', 'prediction_label', 'normal_probability', 'attack_probability'];
+      loadFlows(1);
+      loadAttacks();
+    }
+
+    function setupSavedDownloads(analysis, predictions) {
+      const csvHeaders = ['flow_id', 'src_ip', 'dst_ip', 'src_port', 'dst_port', 'protocol', 'prediction_label', 'normal_probability', 'attack_probability'];
+      const csvRows = [csvHeaders.join(',')];
+      predictions.forEach(p => {
+        csvRows.push([
+          p.flow_id ?? '',
+          p.src_ip ?? '',
+          p.dst_ip ?? '',
+          p.src_port ?? '',
+          p.dst_port ?? '',
+          p.protocol ?? '',
+          p.prediction_label ?? '',
+          p.normal_probability != null ? p.normal_probability : '',
+          p.attack_probability != null ? p.attack_probability : ''
+        ].map(v => JSON.stringify(v)).join(','));
+      });
+      const csvBlob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      $('download-csv-btn').href = URL.createObjectURL(csvBlob);
+      $('download-csv-btn').download = `${analysis.pcapFilename || 'analysis'}_predictions.csv`;
+      $('download-csv-btn').style.display = 'inline-flex';
+
+      const jsonBlob = new Blob([JSON.stringify({ analysis, predictions }, null, 2)], { type: 'application/json;charset=utf-8;' });
+      $('download-json-btn').href = URL.createObjectURL(jsonBlob);
+      $('download-json-btn').download = `${analysis.pcapFilename || 'analysis'}_report.json`;
+      $('download-json-btn').style.display = 'inline-flex';
+
+      $('download-html-btn').style.display = 'none';
+      $('download-docx-btn').style.display = 'none';
     }
 
     async function loadSavedPredictions(analysisId) {
@@ -2101,6 +2472,9 @@
       analyzeBtn.innerHTML = '🔬 Analyze PCAP';
       analyzeBtn.disabled = true;
       jobId = null;
+      currentReportMode = null;
+      currentSavedAnalysis = null;
+      currentSavedPredictions = [];
       resetStages();
       $('progress-elapsed').textContent = 'Elapsed: 0s';
       showScreen('upload');
@@ -2117,6 +2491,13 @@
         const res = await fetch(`${API}/api/pcap/report/${jobId}`);
         if (!res.ok) throw new Error('Failed to fetch report');
         const r = await res.json();
+
+        currentReportMode = 'live';
+        lastLiveReport = r;
+        $('report-back-saved-btn').style.display = 'none';
+        $('report-history-btn').style.display = 'inline-flex';
+        $('download-html-btn').style.display = 'inline-flex';
+        $('download-docx-btn').style.display = 'inline-flex';
 
         $('download-csv-btn').href = `${API}/api/pcap/download/${jobId}?format=csv`;
         $('download-json-btn').href = `${API}/api/pcap/download/${jobId}?format=json`;
@@ -2135,6 +2516,11 @@
     }
 
     function renderReport(r) {
+      currentReportMode = 'live';
+      lastLiveReport = r;
+      $('report-back-saved-btn').style.display = 'none';
+      $('report-history-btn').style.display = 'inline-flex';
+
       const pcap = r.pcap || {};
       const extr = r.extraction || {};
       const preds = r.predictions || {};
@@ -2149,6 +2535,27 @@
         $('database-persistence-warning').classList.add('show');
       } else {
         $('database-persistence-warning').classList.remove('show');
+      }
+
+      const m = r.metrics;
+      const metricsGrid = $('metrics-stat-grid');
+      const metricsSec = $('evaluation-metrics-section');
+      if (m && (m.accuracy != null || m.precision != null || m.recall != null || m.f1Score != null || m.rocAuc != null)) {
+        const metricCards = [];
+        if (m.accuracy != null) metricCards.push({ label: 'Accuracy', value: (m.accuracy * 100).toFixed(1) + '%' });
+        if (m.precision != null) metricCards.push({ label: 'Precision', value: (m.precision * 100).toFixed(1) + '%' });
+        if (m.recall != null) metricCards.push({ label: 'Recall', value: (m.recall * 100).toFixed(1) + '%' });
+        if (m.f1Score != null) metricCards.push({ label: 'F1 Score', value: (m.f1Score * 100).toFixed(1) + '%' });
+        if (m.rocAuc != null) metricCards.push({ label: 'ROC-AUC', value: (m.rocAuc * 100).toFixed(1) + '%' });
+
+        metricsGrid.innerHTML = metricCards.map(c => `
+          <div class="stat-card green">
+            <div class="stat-label">${c.label}</div>
+            <div class="stat-value">${c.value}</div>
+          </div>`).join('');
+        metricsSec.classList.remove('hidden');
+      } else {
+        metricsSec.classList.add('hidden');
       }
 
       const total = preds.total || 0;
@@ -2373,6 +2780,12 @@
     ================================================================ */
     async function loadFlows(page = 1) {
       currentPage = page;
+
+      if (currentReportMode === 'saved') {
+        renderSavedFlowsPage(page);
+        return;
+      }
+
       const params = new URLSearchParams({
         page: currentPage, page_size: 50,
         search: currentSearch,
@@ -2388,6 +2801,64 @@
         allLoadedRows = data.rows || [];
         renderFlows(data);
       } catch (e) { console.error('Flows error:', e); }
+    }
+
+    function renderSavedFlowsPage(page = 1) {
+      let rows = [...currentSavedPredictions];
+
+      // Search
+      if (currentSearch) {
+        const q = currentSearch.toLowerCase();
+        rows = rows.filter(r =>
+          String(r.flow_id ?? '').toLowerCase().includes(q) ||
+          String(r.src_ip ?? '').toLowerCase().includes(q) ||
+          String(r.dst_ip ?? '').toLowerCase().includes(q) ||
+          String(r.src_port ?? '').toLowerCase().includes(q) ||
+          String(r.dst_port ?? '').toLowerCase().includes(q) ||
+          String(r.protocol ?? '').toLowerCase().includes(q)
+        );
+      }
+
+      // Filter label
+      if (currentFilter === 'attack') {
+        rows = rows.filter(r => r.prediction_label === 'Attack');
+      } else if (currentFilter === 'normal') {
+        rows = rows.filter(r => r.prediction_label === 'Normal');
+      }
+
+      // Sort
+      if (sortBy) {
+        rows.sort((a, b) => {
+          let va = a[sortBy];
+          let vb = b[sortBy];
+          if (va == null) return 1;
+          if (vb == null) return -1;
+          let cmp = 0;
+          if (typeof va === 'number' && typeof vb === 'number') {
+            cmp = va - vb;
+          } else {
+            cmp = String(va).localeCompare(String(vb), undefined, { numeric: true });
+          }
+          return sortDesc ? -cmp : cmp;
+        });
+      }
+
+      const pageSize = 50;
+      const total = rows.length;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      const safePage = Math.min(Math.max(page, 1), totalPages);
+      currentPage = safePage;
+
+      const start = (safePage - 1) * pageSize;
+      const pageRows = rows.slice(start, start + pageSize);
+      allLoadedRows = pageRows;
+
+      renderFlows({
+        rows: pageRows,
+        total: total,
+        total_pages: totalPages,
+        page: safePage,
+      });
     }
 
     const PRIORITY_COLS = [
@@ -2542,6 +3013,15 @@
        ATTACKS TABLE
     ================================================================ */
     async function loadAttacks() {
+      if (currentReportMode === 'saved') {
+        const attackRows = currentSavedPredictions.filter(r => r.prediction_label === 'Attack');
+        renderAttacks({
+          rows: attackRows,
+          total: attackRows.length,
+        });
+        return;
+      }
+
       const params = new URLSearchParams({
         page: 1, page_size: 200, filter_label: 'attack',
         sort_by: 'attack_probability', sort_desc: true
@@ -2572,7 +3052,7 @@
 
       $('attacks-thead').innerHTML = '<tr>' + cols.map(c => `<th>${colLabel(c)}</th>`).join('') + '</tr>';
       $('attacks-tbody').innerHTML = rows.slice(0, 100).map(row =>
-        `<tr class="attacks-row-hover" onclick="openFlowModal(${row.flow_id})" title="Click to view flow forensics">` + cols.map(col => {
+        `<tr class="attacks-row-hover" onclick="openFlowModal('${escapeHtml(row.flow_id)}')" title="Click to view flow forensics">` + cols.map(col => {
           let v = row[col];
           if (col === 'predicted_attack_category') {
             const dispCat = decodeCategory(v);
@@ -2598,13 +3078,15 @@
       ).join('');
 
       $('attacks-count').textContent = `${fmtNum(total)} attack flow${total !== 1 ? 's' : ''} detected${total > 100 ? ' (showing top 100 by attack probability)' : ''}.`;
+      $('attacks-section').classList.remove('hidden');
     }
 
     /* ================================================================
        FLOW FORENSICS MODAL
     ================================================================ */
     function openFlowModal(flowId) {
-      const row = allLoadedRows.find(r => r.flow_id === flowId);
+      const row = allLoadedRows.find(r => String(r.flow_id) === String(flowId)) ||
+                  currentSavedPredictions.find(r => String(r.flow_id) === String(flowId));
       if (!row) return;
       $('modal-flow-title').innerHTML = `🔎 Flow #${row.flow_id}: <code>${row.src_ip || '—'}:${row.src_port || '—'} → ${row.dst_ip || '—'}:${row.dst_port || '—'}</code>`;
       let html = '<div class="info-table-wrap"><table class="info-table">';
@@ -2657,9 +3139,45 @@
     }
 
     /* ================================================================
-       INIT
+       INIT & BROWSER HISTORY ROUTING
     ================================================================ */
-    showScreen('upload');
+    window.addEventListener('popstate', (e) => {
+      const hash = window.location.hash;
+      if (hash.startsWith('#analysis/')) {
+        const id = decodeURIComponent(hash.replace('#analysis/', ''));
+        void openSavedAnalysis(id, null, false);
+      } else if (hash === '#history') {
+        showScreen('history', false);
+      } else if (hash === '#report') {
+        if (currentReportMode === 'saved' && currentSavedAnalysis) {
+          showScreen('report', false);
+        } else if (lastLiveReport || jobId) {
+          showScreen('report', false);
+        } else {
+          showScreen('upload', false);
+        }
+      } else {
+        showScreen('upload', false);
+      }
+    });
+
+    function initRoute() {
+      const hash = window.location.hash;
+      if (hash === '#history') {
+        void openSavedAnalyses(false);
+      } else if (hash.startsWith('#analysis/')) {
+        const id = decodeURIComponent(hash.replace('#analysis/', ''));
+        void openSavedAnalysis(id, null, false);
+      } else {
+        showScreen('upload', false);
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      window.addEventListener('DOMContentLoaded', initRoute);
+    } else {
+      initRoute();
+    }
   </script>
 </body>
 

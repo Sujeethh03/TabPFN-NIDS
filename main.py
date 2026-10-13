@@ -12,6 +12,9 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+src_dir = str(PROJECT_ROOT / "src")
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -100,17 +103,17 @@ def run_server(host: str = "127.0.0.1", port: int = 8000, interface: str | None 
         os.environ["CAPTURE_INTERFACE"] = interface
 
     print("=" * 70)
-    print("TabPFN-NIDS — Web Server Starting")
+    print("TabPFN-NIDS - Web Server Starting")
     print("=" * 70)
     print(f"  Dashboard  : http://{host}:{port}/")
     print(f"  API Docs   : http://{host}:{port}/docs")
     print()
     print("  PCAP Analysis Endpoints:")
-    print(f"    Upload   → POST http://{host}:{port}/api/pcap/upload")
-    print(f"    Analyze  → POST http://{host}:{port}/api/pcap/analyze/{{job_id}}")
-    print(f"    Status   → GET  http://{host}:{port}/api/pcap/status/{{job_id}}")
-    print(f"    Report   → GET  http://{host}:{port}/api/pcap/report/{{job_id}}")
-    print(f"    Download → GET  http://{host}:{port}/api/pcap/download/{{job_id}}")
+    print(f"    Upload   -> POST http://{host}:{port}/api/pcap/upload")
+    print(f"    Analyze  -> POST http://{host}:{port}/api/pcap/analyze/{{job_id}}")
+    print(f"    Status   -> GET  http://{host}:{port}/api/pcap/status/{{job_id}}")
+    print(f"    Report   -> GET  http://{host}:{port}/api/pcap/report/{{job_id}}")
+    print(f"    Download -> GET  http://{host}:{port}/api/pcap/download/{{job_id}}")
     if interface:
         print(f"\n  Live Capture Interface: {interface}")
     print("=" * 70)
