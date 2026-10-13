@@ -1,21 +1,20 @@
+
 # =========================================================
-# Large PCAP datasets - DO NOT TRACK
+# PCAP FILES AND NETWORK DATASETS — DO NOT TRACK
 # =========================================================
 
 *.pcap
 *.pcapng
 
-# Keep the small sample PCAP
+# Keep the small sample PCAP only if intentionally required
 !data/sample_traffic.pcap
 
-# =========================================================
-# Generated artifacts - DO NOT TRACK
-# =========================================================
-
-data/artifacts/
+data/raw/
+data/intermediate/
+data/processed/
 
 # =========================================================
-# Results - DO NOT TRACK
+# GENERATED RESULTS AND ARTIFACTS
 # =========================================================
 
 results/
@@ -23,36 +22,103 @@ outputs/
 logs/
 *.log
 
+data/artifacts/
+*.parquet
+*.csv
+*.joblib
+*.ckpt
+*.pth
+*.pt
+*.pkl
+
 # =========================================================
-# Python
+# PYTHON
 # =========================================================
 
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
 venv/
 .venv/
-*.egg-info/
+env/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # =========================================================
-# Jupyter
+# JUPYTER
 # =========================================================
 
 .ipynb_checkpoints/
 
 # =========================================================
-# IDE / OS
+# ENVIRONMENT VARIABLES AND SECRETS
+# =========================================================
+
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Database connection strings and local URL notes
+database-service-url.txt
+database-url.txt
+
+# Private keys and certificates
+*.pem
+*.key
+
+# =========================================================
+# NODE.JS AND TYPESCRIPT
+# =========================================================
+
+node_modules/
+database-service/node_modules/
+
+# Build output
+dist/
+build/
+database-service/dist/
+
+# Package manager and tool caches
+.npm/
+.eslintcache/
+*.tsbuildinfo
+
+# =========================================================
+# PRISMA — KEEP SCHEMA AND MIGRATIONS TRACKED
+# =========================================================
+
+# Do NOT ignore database-service/prisma/schema.prisma
+# Do NOT ignore database-service/prisma/migrations/
+# Do NOT ignore database-service/package.json
+# Do NOT ignore database-service/package-lock.json
+
+# =========================================================
+# IDE AND OPERATING SYSTEM
 # =========================================================
 
 .vscode/
 .idea/
 .DS_Store
+Thumbs.db
+Desktop.ini
 
 # =========================================================
-# Keep directory placeholders
+# LOCAL BACKUPS AND TEMPORARY FILES
+# =========================================================
+
+*.bak
+*.tmp
+*.temp
+*.swp
+*~
+
+# =========================================================
+# KEEP DIRECTORY PLACEHOLDERS
 # =========================================================
 
 !.gitkeep
 !**/.gitkeep
-# Node.js dependencies
-node_modules/

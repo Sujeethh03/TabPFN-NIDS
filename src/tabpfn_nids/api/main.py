@@ -19,6 +19,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from tabpfn_nids.api.event_bus import EventBus
+from tabpfn_nids.api.database_client import (
+    get_analysis_history,
+    get_analysis_predictions,
+)
 from tabpfn_nids.api.pcap_router import router as pcap_router
 from tabpfn_nids.capture.interface_manager import (
     InterfaceNotFoundError,
@@ -70,6 +74,60 @@ app = FastAPI(
 
 # Register PCAP analysis router (prefix: /api)
 app.include_router(pcap_router, prefix="/api")
+
+
+@app.get("/api/analyses", summary="List saved PCAP analyses")
+async def list_saved_analyses(limit: int = 20):
+    """Return recent analysis records stored by the Prisma database service."""
+    if not 1 <= limit <= 100:
+        raise HTTPException(
+            status_code=422,
+            detail="limit must be between 1 and 100",
+        )
+
+    try:
+        return await asyncio.to_thread(get_analysis_history, limit)
+    except RuntimeError as exc:
+        logger.exception("Could not load saved analyses from the database")
+        raise HTTPException(
+            status_code=503,
+            detail="Saved analysis history is temporarily unavailable.",
+        ) from exc
+
+
+@app.get(
+    "/api/analyses/{analysis_id}/predictions",
+    summary="List saved predictions for an analysis",
+)
+async def list_saved_predictions(
+    analysis_id: str,
+    skip: int = 0,
+    limit: int = 100,
+):
+    """Return a page of flow predictions from the Prisma database service."""
+    if skip < 0 or not 1 <= limit <= 500:
+        raise HTTPException(
+            status_code=422,
+            detail="skip must be non-negative and limit must be between 1 and 500",
+        )
+
+    try:
+        return await asyncio.to_thread(
+            get_analysis_predictions,
+            analysis_id,
+            skip,
+            limit,
+        )
+    except RuntimeError as exc:
+        logger.exception(
+            "Could not load saved predictions for analysis %s",
+            analysis_id,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Saved predictions are temporarily unavailable.",
+        ) from exc
+
 
 app.add_middleware(
     CORSMiddleware,

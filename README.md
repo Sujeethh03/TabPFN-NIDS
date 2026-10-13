@@ -124,6 +124,51 @@ per-experiment expected outputs, tolerance bands and troubleshooting — see
 
 ---
 
+## PCAP analysis database and saved history
+
+The PCAP API can persist completed analyses and their per-flow predictions in
+PostgreSQL using Prisma. The dashboard's **Saved analyses** view reads this
+history through the Python API. The database service is separate, so start it
+alongside the Python API when database-backed history is needed.
+
+1. Configure the database service:
+
+   ```powershell
+   cd database-service
+   if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+   ```
+
+   Set `DATABASE_URL` to the PostgreSQL connection string used by the running
+   service and `DIRECT_URL` to a direct PostgreSQL connection string used by
+   Prisma migrations. Keep `.env` private; do not commit database credentials.
+
+2. Install dependencies, generate the Prisma client, and apply migrations:
+
+   ```powershell
+   npm ci
+   npm run db:generate
+   npm run db:deploy
+   npm run start
+   ```
+
+   The database API listens on `http://127.0.0.1:3000` by default. Set
+   `TABPFN_DATABASE_API_URL` in the Python API environment if it runs elsewhere.
+
+3. In a second terminal, activate the project Python environment and start the
+   API from the repository root:
+
+   ```powershell
+   .\venv\Scripts\Activate.ps1
+   uvicorn tabpfn_nids.api.main:app --reload --port 8000
+   ```
+
+   Open `http://127.0.0.1:8000`. After a PCAP analysis completes, use
+   **Saved analyses** to browse stored runs and page through saved predictions.
+   Database outages do not invalidate the live analysis report; the history
+   screen reports when the database service is unavailable.
+
+---
+
 ## 1. Setup
 
 ```bash
@@ -144,6 +189,7 @@ install nothing can import it.
 from tabpfn_nids.data_pipeline import load_nsl_kdd     # correct
 from src.data_pipeline.loader import load_nsl_kdd      # wrong - there is no `src` package
 ```
+
 
 If you hit `ModuleNotFoundError`, the fix is `pip install -e .`, not
 `PYTHONPATH=.`. Setting `PYTHONPATH` to the repo root makes `import src.*`
@@ -427,7 +473,7 @@ no CUDA required. Exact pins in `requirements.txt`.
 
 ## Reference
 
-Hollmann, N., Müller, S., Purucker, L., Krishnakumar, A., Körfer, M., Hoo, S. B.,
+Hollmann   ,  N., Müller, S., Purucker, L., Krishnakumar, A., Körfer, M., Hoo, S. B.,
 Schirrmeister, R. T., & Hutter, F. (2025). Accurate predictions on small data
 with a tabular foundation model. *Nature, 637*(8045), 319–326.
 https://doi.org/10.1038/s41586-024-08328-6

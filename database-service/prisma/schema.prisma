@@ -1,0 +1,67 @@
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AnalysisStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Analysis {
+  id              String         @id @default(cuid())
+  pcapFilename    String
+  status          AnalysisStatus @default(PROCESSING)
+  totalFlows      Int            @default(0)
+  normalFlows     Int            @default(0)
+  attackFlows     Int            @default(0)
+  durationSeconds Float?
+  errorMessage    String?
+  createdAt       DateTime       @default(now())
+  completedAt     DateTime?
+
+  metrics     EvaluationMetric?
+  predictions Prediction[]
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model EvaluationMetric {
+  id         String   @id @default(cuid())
+  analysisId String   @unique
+  accuracy   Float?
+  precision  Float?
+  recall     Float?
+  f1Score    Float?
+  rocAuc     Float?
+  createdAt  DateTime @default(now())
+
+  analysis Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+}
+
+model Prediction {
+  id                BigInt   @id @default(autoincrement())
+  analysisId        String
+  flowId            String?
+  srcIp             String?
+  dstIp             String?
+  srcPort           Int?
+  dstPort           Int?
+  protocol          String?
+  predictionLabel   String
+  normalProbability Float?
+  attackProbability Float?
+  createdAt         DateTime @default(now())
+
+  analysis Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([analysisId])
+  @@index([predictionLabel])
+}
