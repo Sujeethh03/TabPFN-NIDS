@@ -226,6 +226,27 @@ app.get("/api/analyses", async (req, res) => {
   }
 });
 
+// Retrieve an individual analysis by ID.
+app.get("/api/analyses/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const analysis = await prisma.analysis.findUnique({
+      where: { id },
+      include: { metrics: true },
+    });
+
+    if (!analysis) {
+      res.status(404).json({ error: "Analysis not found" });
+      return;
+    }
+
+    res.json(analysis);
+  } catch (error) {
+    console.error("Load analysis failed:", error);
+    res.status(500).json({ error: "Could not load analysis" });
+  }
+});
+
 // Retrieve predictions for one analysis.
 app.get("/api/analyses/:id/predictions", async (req, res) => {
   try {

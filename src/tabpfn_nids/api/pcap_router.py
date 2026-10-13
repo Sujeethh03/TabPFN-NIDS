@@ -97,6 +97,23 @@ def _load_artifacts() -> tuple:
             "Artifacts loaded. Model expects %d features.",
             len(_artifact_cache["feature_names"]),
         )
+
+    if "multiclass_model" not in _artifact_cache and MULTICLASS_MODEL_PATH.exists():
+        logger.info("Loading TabPFN multiclass model artifacts into existing cache...")
+        with open(MULTICLASS_MODEL_PATH, "rb") as f:
+            _artifact_cache["multiclass_model"] = pickle.load(f)
+        if MULTICLASS_SCALER_PATH.exists():
+            with open(MULTICLASS_SCALER_PATH, "rb") as f:
+                _artifact_cache["multiclass_scaler"] = pickle.load(f)
+        else:
+            _artifact_cache["multiclass_scaler"] = _artifact_cache.get("scaler")
+
+        if MULTICLASS_LABEL_ENCODER_PATH.exists():
+            with open(MULTICLASS_LABEL_ENCODER_PATH, "r", encoding="utf-8") as f:
+                le = json.load(f)
+            _artifact_cache["multiclass_label_encoder"] = le
+            _artifact_cache["multiclass_classes"] = le.get("classes", [])
+
     return (
         _artifact_cache["model"],
         _artifact_cache["scaler"],
@@ -109,6 +126,7 @@ def _load_artifacts() -> tuple:
 
 def _get_model_info() -> dict[str, Any]:
     """Return model metadata for binary and multiclass classifiers."""
+    _load_artifacts()
     feature_names = _artifact_cache.get("feature_names", [])
     mc_classes = _artifact_cache.get("multiclass_classes", [])
     return {

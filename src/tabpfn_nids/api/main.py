@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from tabpfn_nids.api.event_bus import EventBus
 from tabpfn_nids.api.database_client import (
+    get_analysis_by_id,
     get_analysis_history,
     get_analysis_predictions,
 )
@@ -92,6 +93,30 @@ async def list_saved_analyses(limit: int = 20):
         raise HTTPException(
             status_code=503,
             detail="Saved analysis history is temporarily unavailable.",
+        ) from exc
+
+
+@app.get(
+    "/api/analyses/{analysis_id}",
+    summary="Get a saved PCAP analysis by ID",
+)
+async def get_saved_analysis(analysis_id: str):
+    """Return a single saved analysis record from the Prisma database service."""
+    try:
+        return await asyncio.to_thread(get_analysis_by_id, analysis_id)
+    except RuntimeError as exc:
+        if "HTTP 404" in str(exc):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Analysis '{analysis_id}' not found.",
+            ) from exc
+        logger.exception(
+            "Could not load saved analysis %s from the database",
+            analysis_id,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Saved analysis is temporarily unavailable.",
         ) from exc
 
 
