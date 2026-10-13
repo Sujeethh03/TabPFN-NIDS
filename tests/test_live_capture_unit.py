@@ -212,40 +212,42 @@ def test_live_flow_manager_timeout():
 
 # ─── 5. Window Manager & Backpressure Tests ────────────────────────────────────
 
-@pytest.mark.asyncio
-async def test_window_manager_enqueue_and_backpressure():
-    flow_mgr = LiveFlowManager()
-    win_mgr = WindowManager(
-        flow_manager=flow_mgr,
-        window_size_seconds=2.0,
-        step_seconds=0.2,
-        queue_size=2,  # Intentionally small queue to test backpressure
-    )
+def test_window_manager_enqueue_and_backpressure():
+    async def _run():
+        flow_mgr = LiveFlowManager()
+        win_mgr = WindowManager(
+            flow_manager=flow_mgr,
+            window_size_seconds=2.0,
+            step_seconds=0.2,
+            queue_size=2,  # Intentionally small queue to test backpressure
+        )
 
-    p = PacketRecord(
-        timestamp=100.0,
-        src_ip="192.168.1.1",
-        dst_ip="8.8.8.8",
-        src_port=1000,
-        dst_port=53,
-        protocol=17,
-        protocol_name="udp",
-        length=50,
-        tcp_flags=0,
-        payload_length=20,
-    )
+        p = PacketRecord(
+            timestamp=100.0,
+            src_ip="192.168.1.1",
+            dst_ip="8.8.8.8",
+            src_port=1000,
+            dst_port=53,
+            protocol=17,
+            protocol_name="udp",
+            length=50,
+            tcp_flags=0,
+            payload_length=20,
+        )
 
-    win_mgr.start()
-    win_mgr.record_packet(p)
+        win_mgr.start()
+        win_mgr.record_packet(p)
 
-    # Allow window timer loop to run for a couple of cycles
-    await asyncio.sleep(0.6)
+        # Allow window timer loop to run for a couple of cycles
+        await asyncio.sleep(0.6)
 
-    # Queue should contain windows, and if full, dropped count tracks backpressure
-    assert win_mgr.window_queue.qsize() > 0 or win_mgr.metrics.windows_created > 0
+        # Queue should contain windows, and if full, dropped count tracks backpressure
+        assert win_mgr.window_queue.qsize() > 0 or win_mgr.metrics.windows_created > 0
 
-    await win_mgr.stop()
-    assert not win_mgr.is_running
+        await win_mgr.stop()
+        assert not win_mgr.is_running
+
+    asyncio.run(_run())
 
 
 # ─── 6. Live Detection Result Formatting ──────────────────────────────────────

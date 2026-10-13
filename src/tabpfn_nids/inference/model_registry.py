@@ -175,7 +175,7 @@ class ModelRegistry:
         # or alongside subdirectories
         root_pkls = [
             f for f in self.models_dir.glob("*.pkl")
-            if f.is_file() and not f.name.startswith(".")
+            if f.is_file() and not f.name.startswith(".") and "multiclass" not in f.name.lower()
         ]
 
         # If subdirectories exist, we consider subdirectories as the models.

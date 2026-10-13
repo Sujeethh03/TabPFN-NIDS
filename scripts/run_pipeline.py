@@ -359,7 +359,17 @@ def stage_train(cfg: PipelineConfig) -> dict:
     ]))
     feature_cols = [c for c in train_df.columns if c not in exclude]
     X_train = train_df[feature_cols].values.astype(np.float64)
-    y_train = train_df["label"].values.astype(int)
+
+    if task == "multiclass":
+        # Load or generate multiclass label mapping
+        classes = sorted([c for c in train_df["attack_cat"].unique() if c != "UNKNOWN"])
+        if "Normal" not in classes:
+            classes.insert(0, "Normal")
+        cat2idx = {c: i for i, c in enumerate(classes)}
+        y_train = train_df["attack_cat"].map(cat2idx).fillna(0).values.astype(int)
+    else:
+        y_train = train_df["label"].values.astype(int)
+        classes = ["Normal", "Attack"]
 
     model = TabPFNModel(
         task=task,
@@ -374,10 +384,13 @@ def stage_train(cfg: PipelineConfig) -> dict:
     model.fit(X_train, y_train)
 
     # Save model config
-    config_path = cfg.paths.artifacts_dir / "preprocessing" / "model_config.json"
+    config_name = "multiclass_model_config.json" if task == "multiclass" else "model_config.json"
+    config_path = cfg.paths.artifacts_dir / "preprocessing" / config_name
     config_path.parent.mkdir(parents=True, exist_ok=True)
+    m_conf = model.get_config()
+    m_conf["classes"] = classes
     with open(config_path, "w") as f:
-        json.dump(model.get_config(), f, indent=2, default=str)
+        json.dump(m_conf, f, indent=2, default=str)
 
     # Predict on validation and test
     for split_name in ["validation", "test"]:
@@ -396,43 +409,72 @@ def stage_train(cfg: PipelineConfig) -> dict:
         for i in range(y_proba.shape[1]):
             pred_df[f"proba_class_{i}"] = y_proba[:, i]
 
-        pred_path = cfg.paths.results_dir / f"{split_name}_predictions.parquet"
+        pred_path = cfg.paths.results_dir / f"{task}_{split_name}_predictions.parquet"
         Path(pred_path).parent.mkdir(parents=True, exist_ok=True)
         pred_df.to_parquet(pred_path, compression="snappy")
         logger.info("Saved %s predictions → %s", split_name, pred_path)
 
     return {
         "status": "done",
-        "model_config": model.get_config(),
+        "model_config": m_conf,
     }
 
 
 def stage_evaluate(cfg: PipelineConfig) -> dict:
     """Stage 9: Evaluate and generate reports."""
-    from tabpfn_nids.evaluation import compute_metrics, format_metrics
+    from tabpfn_nids.evaluation import (
+        compute_metrics,
+        compute_multiclass_metrics,
+        format_metrics,
+        format_multiclass_metrics,
+    )
 
     task = cfg.task.mode
     results = {}
 
     for split_name in ["validation", "test"]:
-        pred_path = cfg.paths.results_dir / f"{split_name}_predictions.parquet"
+        pred_path = cfg.paths.results_dir / f"{task}_{split_name}_predictions.parquet"
         if not pred_path.is_file():
-            continue
+            # Fallback to un-prefixed name for backwards compatibility
+            pred_path = cfg.paths.results_dir / f"{split_name}_predictions.parquet"
+            if not pred_path.is_file():
+                continue
 
         df = pd.read_parquet(pred_path)
-        y_true = df["label"].values.astype(int)
-        y_pred = df["y_pred"].values.astype(int)
 
         # Get probability columns
         proba_cols = [c for c in df.columns if c.startswith("proba_class_")]
         y_proba = df[proba_cols].values if proba_cols else None
 
-        metrics = compute_metrics(y_true, y_pred, y_proba)
+        if task == "multiclass":
+            # Load classes
+            enc_path = cfg.paths.artifacts_dir / "models" / "multiclass_label_encoder.json"
+            if enc_path.is_file():
+                with open(enc_path, "r", encoding="utf-8") as f:
+                    classes = json.load(f).get("classes", [])
+            else:
+                classes = sorted([c for c in df["attack_cat"].unique() if c != "UNKNOWN"])
 
-        print(f"\n{format_metrics(metrics, title=f'{split_name.upper()} — {task}')}")
+            cat2idx = {c: i for i, c in enumerate(classes)}
+            y_true = df["attack_cat"].tolist()
+            y_pred_idx = df["y_pred"].values.astype(int)
+            y_pred = [classes[i] if 0 <= i < len(classes) else "Uncertain" for i in y_pred_idx]
+
+            metrics = compute_multiclass_metrics(
+                y_true=y_true,
+                y_pred=y_pred,
+                y_proba=y_proba,
+                classes=classes,
+            )
+            print(f"\n{format_multiclass_metrics(metrics, title=f'{split_name.upper()} — {task.upper()}')}")
+        else:
+            y_true = df["label"].values.astype(int)
+            y_pred = df["y_pred"].values.astype(int)
+            metrics = compute_metrics(y_true, y_pred, y_proba)
+            print(f"\n{format_metrics(metrics, title=f'{split_name.upper()} — {task}')}")
 
         # Save metrics
-        metrics_path = cfg.paths.results_dir / f"{split_name}_metrics.json"
+        metrics_path = cfg.paths.results_dir / f"{task}_{split_name}_metrics.json"
         with open(metrics_path, "w") as f:
             serialisable = {
                 k: v.tolist() if isinstance(v, np.ndarray) else v

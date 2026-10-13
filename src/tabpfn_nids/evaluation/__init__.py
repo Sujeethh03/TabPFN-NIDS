@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from tabpfn_nids.evaluation.metrics import compute_metrics, format_metrics
+from tabpfn_nids.evaluation.metrics import (
+    compute_metrics,
+    compute_multiclass_metrics,
+    decode_attack_category,
+    format_metrics,
+    format_multiclass_metrics,
+    get_attack_category_mapping,
+)
 from tabpfn_nids.evaluation.plots import (
     plot_all,
     plot_confusion_matrix,
@@ -23,7 +30,11 @@ from tabpfn_nids.evaluation.significance import (
 __all__ = [
     "build_result_row",
     "compute_metrics",
+    "compute_multiclass_metrics",
+    "decode_attack_category",
     "format_metrics",
+    "format_multiclass_metrics",
+    "get_attack_category_mapping",
     "load_results",
     "minimum_reachable_p",
     "plot_all",

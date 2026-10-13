@@ -47,6 +47,10 @@ from tabpfn_nids.labeling.unsw_ground_truth import (
 
 from tabpfn_nids.evaluation.metrics import (
     compute_metrics,
+    compute_multiclass_metrics,
+    decode_attack_category,
+    format_multiclass_metrics,
+    get_attack_category_mapping,
 )
 
 from tabpfn_nids.pcap.analysis_report import (
@@ -95,6 +99,30 @@ SCALER_PATH = (
     / "fitted_scaler.pkl"
 )
 
+MULTICLASS_MODEL_PATH = (
+    ARTIFACTS_DIR
+    / "models"
+    / "tabpfn_multiclass_model.pkl"
+)
+
+MULTICLASS_SCHEMA_PATH = (
+    ARTIFACTS_DIR
+    / "models"
+    / "multiclass_feature_schema.json"
+)
+
+MULTICLASS_SCALER_PATH = (
+    ARTIFACTS_DIR
+    / "preprocessing"
+    / "multiclass_scaler.pkl"
+)
+
+MULTICLASS_LABEL_ENCODER_PATH = (
+    ARTIFACTS_DIR
+    / "models"
+    / "multiclass_label_encoder.json"
+)
+
 OUTPUT_DIR = (
     PROJECT_ROOT
     / "results"
@@ -118,13 +146,13 @@ logger = logging.getLogger(__name__)
 # Load trained artifacts
 # =========================================================
 
-def load_artifacts():
-    """Load the already-trained model and preprocessing artifacts."""
+def load_artifacts(include_multiclass: bool = False):
+    """Load binary model (and optionally multiclass model) and preprocessing artifacts."""
 
-    logger.info("Loading trained model...")
+    logger.info("Loading binary TabPFN model...")
 
     with open(MODEL_PATH, "rb") as f:
-        model = pickle.load(f)
+        binary_model = pickle.load(f)
 
     logger.info("Loading feature schema...")
 
@@ -137,17 +165,54 @@ def load_artifacts():
 
     feature_names = schema["feature_names"]
 
-    logger.info("Loading fitted scaler...")
+    logger.info("Loading fitted binary scaler...")
 
     with open(SCALER_PATH, "rb") as f:
-        scaler = pickle.load(f)
+        binary_scaler = pickle.load(f)
+
+    if not include_multiclass:
+        return binary_model, binary_scaler, feature_names
+
+    multiclass_model = None
+    multiclass_scaler = None
+    multiclass_label_encoder = None
+
+    if MULTICLASS_MODEL_PATH.exists():
+        logger.info("Loading multiclass TabPFN model...")
+        with open(MULTICLASS_MODEL_PATH, "rb") as f:
+            multiclass_model = pickle.load(f)
+
+        if MULTICLASS_SCALER_PATH.exists():
+            logger.info("Loading multiclass scaler...")
+            with open(MULTICLASS_SCALER_PATH, "rb") as f:
+                multiclass_scaler = pickle.load(f)
+        else:
+            multiclass_scaler = binary_scaler
+
+        if MULTICLASS_LABEL_ENCODER_PATH.exists():
+            logger.info("Loading multiclass label encoder...")
+            with open(
+                MULTICLASS_LABEL_ENCODER_PATH,
+                "r",
+                encoding="utf-8",
+            ) as f:
+                multiclass_label_encoder = json.load(f)
 
     logger.info(
-        "Model expects %d features",
-        len(feature_names),
+        "Binary model ready. Multiclass model: %s",
+        "Loaded (%d classes)" % len(multiclass_label_encoder["classes"])
+        if multiclass_label_encoder is not None
+        else "Not available",
     )
 
-    return model, scaler, feature_names
+    return (
+        binary_model,
+        binary_scaler,
+        feature_names,
+        multiclass_model,
+        multiclass_scaler,
+        multiclass_label_encoder,
+    )
 
 
 # =========================================================
@@ -210,9 +275,10 @@ def extract_and_build_features(
 def prepare_model_input(
     features: pd.DataFrame,
     feature_names: list,
-    scaler,
+    binary_scaler,
+    multiclass_scaler=None,
 ):
-    """Prepare features for the existing trained model."""
+    """Prepare features for binary and multiclass models."""
 
     missing_features = [
         feature
@@ -252,17 +318,20 @@ def prepare_model_input(
         np.nan,
     )
 
-    # Current inference behavior:
-    # missing/invalid model inputs are replaced by 0.
+    # Missing/invalid model inputs are replaced by 0.
     X = X.fillna(0)
 
     logger.info(
-        "Applying fitted scaler..."
+        "Applying fitted scaler(s)..."
     )
 
-    X_scaled = scaler.transform(X)
+    X_binary_scaled = binary_scaler.transform(X)
 
-    return metadata, X_scaled
+    if multiclass_scaler is not None:
+        X_multi_scaled = multiclass_scaler.transform(X)
+        return metadata, X_binary_scaled, X_multi_scaled
+
+    return metadata, X_binary_scaled
 
 
 # =========================================================
@@ -332,6 +401,45 @@ def predict(
     )
 
 
+def predict_multiclass(
+    model,
+    X,
+    batch_size: int = 200,
+):
+    """Run multiclass prediction in batches to manage CPU/memory."""
+
+    logger.info(
+        "Running TabPFN multiclass inference on %d rows...",
+        len(X),
+    )
+
+    if len(X) == 0:
+        return np.empty(0, dtype=int), np.empty((0, 9))
+
+    prediction_start = time.perf_counter()
+
+    probs_list = []
+    for i in range(0, len(X), batch_size):
+        batch = X[i : i + batch_size]
+        batch_probs = model.predict_proba(batch)
+        probs_list.append(batch_probs)
+
+    probabilities = np.vstack(probs_list)
+    predictions = np.argmax(probabilities, axis=1)
+
+    prediction_seconds = time.perf_counter() - prediction_start
+    logger.info(
+        "Multiclass inference on %d samples completed in %.2fs",
+        len(predictions),
+        prediction_seconds,
+    )
+
+    return (
+        predictions,
+        probabilities,
+    )
+
+
 # =========================================================
 # Convert prediction labels
 # =========================================================
@@ -361,8 +469,16 @@ def build_prediction_output(
     probabilities,
     inference_meta: dict | None = None,
     per_model_probabilities: dict | None = None,
+    predicted_categories=None,
+    category_confidences=None,
+    prediction_statuses=None,
+    multiclass_probabilities=None,
+    class_names=None,
+    multiclass_predictions=None,
+    is_conflicts=None,
+    conflict_reasons=None,
 ):
-    """Build the flow-level prediction dataframe."""
+    """Build the flow-level prediction dataframe with binary and multiclass fields."""
 
     output = metadata.copy()
 
@@ -380,18 +496,38 @@ def build_prediction_output(
         )
         for value in predictions
     ]
+    output["binary_prediction"] = output["prediction_label"]
 
     if probabilities is not None:
-
         if probabilities.shape[1] >= 2:
-
             output["normal_probability"] = (
                 probabilities[:, 0]
             )
-
             output["attack_probability"] = (
                 probabilities[:, 1]
             )
+            output["binary_attack_probability"] = (
+                probabilities[:, 1]
+            )
+
+    # Multiclass predictions & classification status
+    if multiclass_predictions is not None:
+        output["predicted_attack_category_id"] = [int(p) for p in multiclass_predictions]
+
+    if predicted_categories is not None:
+        output["predicted_attack_category"] = predicted_categories
+        output["attack_category_confidence"] = category_confidences
+        output["category_confidence"] = category_confidences
+        output["prediction_status"] = prediction_statuses
+        output["classification_status"] = prediction_statuses
+        if is_conflicts is not None:
+            output["is_model_conflict"] = is_conflicts
+            output["conflict_reason"] = conflict_reasons
+
+    if multiclass_probabilities is not None and class_names is not None:
+        for idx, cls_name in enumerate(class_names):
+            clean_cls = f"prob_{cls_name.lower().replace(' ', '_')}"
+            output[clean_cls] = multiclass_probabilities[:, idx]
 
     # Optional ensemble provenance columns
     if inference_meta is not None and inference_meta.get("num_models", 1) > 1:
@@ -420,8 +556,11 @@ def evaluate_with_ground_truth(
     predictions,
     probabilities,
     ground_truth_path: Path,
+    multiclass_predictions=None,
+    multiclass_probabilities=None,
+    multiclass_label_encoder=None,
 ):
-    """Match flows against ground truth and calculate metrics."""
+    """Match flows against ground truth and calculate binary & multiclass metrics."""
 
     logger.info(
         "Loading ground truth..."
@@ -489,9 +628,50 @@ def evaluate_with_ground_truth(
         y_proba=matched_probabilities,
     )
 
+    multiclass_metrics = None
+    if (
+        multiclass_predictions is not None
+        and multiclass_label_encoder is not None
+        and "attack_cat" in labeled_flows.columns
+    ):
+        class_to_idx = multiclass_label_encoder["class_to_idx"]
+        class_names = multiclass_label_encoder["classes"]
+
+        matched_gt_cats = (
+            labeled_flows.loc[matched_mask, "attack_cat"]
+            .astype(str)
+            .str.strip()
+        )
+
+        y_true_multi = []
+        valid_indices = []
+
+        for idx, cat_name in enumerate(matched_gt_cats):
+            if cat_name in class_to_idx:
+                y_true_multi.append(class_to_idx[cat_name])
+                valid_indices.append(idx)
+            elif cat_name.lower() == "normal" and "Normal" in class_to_idx:
+                y_true_multi.append(class_to_idx["Normal"])
+                valid_indices.append(idx)
+
+        if len(valid_indices) > 0:
+            y_true_multi = np.array(y_true_multi)
+            matched_mc_preds = np.asarray(multiclass_predictions)[matched_mask.to_numpy()][valid_indices]
+            matched_mc_probs = None
+            if multiclass_probabilities is not None:
+                matched_mc_probs = np.asarray(multiclass_probabilities)[matched_mask.to_numpy()][valid_indices]
+
+            multiclass_metrics = compute_multiclass_metrics(
+                y_true=y_true_multi,
+                y_pred=matched_mc_preds,
+                y_proba=matched_mc_probs,
+                class_names=class_names,
+            )
+
     return (
         labeled_flows,
         metrics,
+        multiclass_metrics,
     )
 
 
@@ -535,7 +715,7 @@ def save_results(
 def print_summary(
     output: pd.DataFrame,
 ):
-    """Print prediction counts."""
+    """Print prediction counts, attack categories, and classification status."""
 
     total = len(output)
 
@@ -563,12 +743,33 @@ def print_summary(
     )
 
     print(
-        f"Normal      : {normal_count}"
+        f"Normal      : {normal_count} ({(normal_count / total * 100):.1f}%)" if total else f"Normal      : {normal_count}"
     )
 
     print(
-        f"Attack      : {attack_count}"
+        f"Attack      : {attack_count} ({(attack_count / total * 100):.1f}%)" if total else f"Attack      : {attack_count}"
     )
+
+    if "predicted_attack_category" in output.columns:
+        print("-" * 60)
+        print("ATTACK CATEGORY BREAKDOWN")
+        print("-" * 60)
+        cat_counts = output["predicted_attack_category"].value_counts()
+        for cat, cnt in cat_counts.items():
+            pct = (cnt / total * 100) if total else 0.0
+            print(f"  {cat:<18}: {cnt:>6} ({pct:>5.1f}%)")
+
+    if "prediction_status" in output.columns:
+        print("-" * 60)
+        print("CLASSIFICATION RELIABILITY & STATUS")
+        print("-" * 60)
+        status_counts = output["prediction_status"].value_counts()
+        for st, cnt in status_counts.items():
+            pct = (cnt / total * 100) if total else 0.0
+            print(f"  {st:<18}: {cnt:>6} ({pct:>5.1f}%)")
+        if "attack_category_confidence" in output.columns:
+            avg_conf = output["attack_category_confidence"].mean()
+            print(f"  Average Confidence: {avg_conf * 100:.2f}%")
 
     print("=" * 60)
 
@@ -639,6 +840,13 @@ def main():
         help="Include per-model probability columns in output CSV.",
     )
 
+    parser.add_argument(
+        "--uncertainty-threshold",
+        type=float,
+        default=0.5,
+        help="Confidence threshold below which predictions are marked Uncertain (default: 0.5).",
+    )
+
     args = parser.parse_args()
 
     analysis_start = (
@@ -674,9 +882,14 @@ def main():
     # 1. Load already-trained artifacts & configure inference
     # -----------------------------------------------------
 
-    model, scaler, feature_names = (
-        load_artifacts()
-    )
+    (
+        model,
+        scaler,
+        feature_names,
+        multiclass_model,
+        multiclass_scaler,
+        multiclass_label_encoder,
+    ) = load_artifacts(include_multiclass=True)
 
     try:
         cfg = load_config()
@@ -737,11 +950,12 @@ def main():
     # 3. Prepare model input
     # -----------------------------------------------------
 
-    metadata, X = (
+    metadata, X_binary, X_multi = (
         prepare_model_input(
             features,
             feature_names,
             scaler,
+            multiclass_scaler,
         )
     )
 
@@ -755,12 +969,68 @@ def main():
     # 4. Predict
     # -----------------------------------------------------
 
-    inf_result = inference_manager.predict(X)
+    inf_result = inference_manager.predict(
+        X_binary,
+        model_ids=["tabpfn_binary_model"],
+    )
 
     predictions = inf_result.predictions
     probabilities = inf_result.probabilities
     inference_meta = inf_result.metadata
     per_model_probabilities = inf_result.per_model_probabilities
+
+    multi_preds = None
+    multi_probs = None
+    predicted_categories = None
+    category_confidences = None
+    prediction_statuses = None
+    classes = None
+
+    if multiclass_model is not None and multiclass_label_encoder is not None:
+        classes = multiclass_label_encoder.get("classes", [])
+        mapping = get_attack_category_mapping(multiclass_label_encoder)
+
+        multi_preds, multi_probs = predict_multiclass(
+            multiclass_model,
+            X_multi,
+            batch_size=200,
+        )
+
+        predicted_categories = [
+            mapping.get(int(idx), decode_attack_category(idx, multiclass_label_encoder))
+            for idx in multi_preds
+        ]
+        category_confidences = np.max(multi_probs, axis=1)
+
+        uncertainty_thresh = args.uncertainty_threshold
+        prediction_statuses = []
+        is_conflicts = []
+        conflict_reasons = []
+        for i, p_cat in enumerate(predicted_categories):
+            bin_lbl = "Normal" if int(predictions[i]) == 0 else "Attack"
+            conf = float(category_confidences[i])
+            has_conflict = False
+            reason = None
+            if bin_lbl == "Attack" and str(p_cat).lower() == "normal":
+                has_conflict = True
+                reason = "Binary model predicted Attack, but multiclass model classified flow as Normal."
+            elif bin_lbl == "Normal" and str(p_cat).lower() != "normal":
+                has_conflict = True
+                reason = f"Binary model predicted Normal, but multiclass model detected {p_cat}."
+
+            is_conflicts.append(has_conflict)
+            conflict_reasons.append(reason)
+
+            if has_conflict:
+                status = "Uncertain"
+            elif conf >= uncertainty_thresh:
+                status = "Classified"
+            else:
+                status = "Uncertain"
+            prediction_statuses.append(status)
+    else:
+        is_conflicts = None
+        conflict_reasons = None
 
     output = (
         build_prediction_output(
@@ -770,6 +1040,14 @@ def main():
             probabilities,
             inference_meta=inference_meta,
             per_model_probabilities=per_model_probabilities,
+            predicted_categories=predicted_categories,
+            category_confidences=category_confidences,
+            prediction_statuses=prediction_statuses,
+            multiclass_probabilities=multi_probs,
+            class_names=classes,
+            multiclass_predictions=multi_preds,
+            is_conflicts=is_conflicts,
+            conflict_reasons=conflict_reasons,
         )
     )
 
@@ -778,6 +1056,7 @@ def main():
     # -----------------------------------------------------
 
     metrics = None
+    multiclass_metrics = None
     labeled_flows = None
     ground_truth_path = None
 
@@ -798,11 +1077,15 @@ def main():
         (
             labeled_flows,
             metrics,
+            multiclass_metrics,
         ) = evaluate_with_ground_truth(
             features=features,
             predictions=predictions,
             probabilities=probabilities,
             ground_truth_path=ground_truth_path,
+            multiclass_predictions=multi_preds,
+            multiclass_probabilities=multi_probs,
+            multiclass_label_encoder=multiclass_label_encoder,
         )
 
         # Add ground-truth information
@@ -854,7 +1137,7 @@ def main():
 
         print()
         print("=" * 60)
-        print("GROUND TRUTH EVALUATION")
+        print("BINARY GROUND TRUTH EVALUATION")
         print("=" * 60)
 
         print(
@@ -922,6 +1205,14 @@ def main():
             "=" * 60
         )
 
+    if multiclass_metrics is not None:
+        print()
+        print("=" * 60)
+        print("MULTICLASS ATTACK IDENTIFICATION EVALUATION")
+        print("=" * 60)
+        print(format_multiclass_metrics(multiclass_metrics))
+        print("=" * 60)
+
     # -----------------------------------------------------
     # 9. Total analysis time
     # -----------------------------------------------------
@@ -953,6 +1244,14 @@ def main():
         metrics=metrics,
         labeled_flows=labeled_flows,
         inference_meta=inference_meta,
+        multiclass_predictions=multi_preds,
+        multiclass_probabilities=multi_probs,
+        predicted_categories=predicted_categories,
+        category_confidences=category_confidences,
+        prediction_statuses=prediction_statuses,
+        multiclass_metrics=multiclass_metrics,
+        class_names=classes,
+        uncertainty_threshold=args.uncertainty_threshold,
     )
 
     json_report_path = (
