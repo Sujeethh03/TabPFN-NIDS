@@ -40,6 +40,11 @@ class WindowManagerMetrics:
     windows_dropped: int = 0
     total_packets_routed: int = 0
     current_queue_size: int = 0
+    packet_refresh_threshold: int = 100
+    packets_since_last_refresh: int = 0
+    packets_until_next_refresh: int = 100
+    windows_triggered_by_packet_count: int = 0
+    windows_triggered_by_timer: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,14 +53,21 @@ class WindowManagerMetrics:
             "windows_dropped": self.windows_dropped,
             "total_packets_routed": self.total_packets_routed,
             "current_queue_size": self.current_queue_size,
+            "packet_refresh_threshold": self.packet_refresh_threshold,
+            "packets_since_last_refresh": self.packets_since_last_refresh,
+            "packets_until_next_refresh": self.packets_until_next_refresh,
+            "windows_triggered_by_packet_count": self.windows_triggered_by_packet_count,
+            "windows_triggered_by_timer": self.windows_triggered_by_timer,
         }
 
 
 class WindowManager:
-    """Orchestrates sliding time-window segmentation over live flow streams.
+    """Orchestrates packet-count and sliding time-window segmentation over live flow streams.
 
     Features:
-    - Runs a periodic timer every ``step_seconds`` (e.g. 5s) while packet capture runs continuously.
+    - Automatically updates active flow statistics as each packet arrives.
+    - Triggers processing refresh every ``packet_refresh_threshold`` packets (default: 100 packets).
+    - Preserves periodic timer refresh every ``step_seconds`` (e.g. 5s) so low-volume traffic is not ignored.
     - Collects active snapshots and completed flows from ``LiveFlowManager``.
     - Enqueues completed ``DetectionWindow`` jobs into a bounded feature/inference queue.
     - Protects the system under heavy load by dropping old windows if inference queue is full,
@@ -68,32 +80,101 @@ class WindowManager:
         window_size_seconds: float = 10.0,
         step_seconds: float = 5.0,
         queue_size: int = 100,
+        packet_refresh_threshold: int = 100,
     ) -> None:
         self.flow_manager = flow_manager
         self.window_size_seconds = max(1.0, float(window_size_seconds))
         self.step_seconds = max(0.5, float(step_seconds))
         self.queue_size = queue_size
+        self.packet_refresh_threshold = max(1, int(packet_refresh_threshold))
 
         self.window_queue: asyncio.Queue[DetectionWindow] = asyncio.Queue(
             maxsize=self.queue_size
         )
-        self.metrics = WindowManagerMetrics()
+        self.metrics = WindowManagerMetrics(
+            packet_refresh_threshold=self.packet_refresh_threshold,
+            packets_until_next_refresh=self.packet_refresh_threshold,
+        )
 
         self._window_counter = 0
         self._loop_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._window_start_time = time.time()
         self._packets_in_window = 0
+        self._packets_since_last_refresh = 0
+        self._last_drop_warning = 0.0
 
     @property
     def is_running(self) -> bool:
         return self._loop_task is not None and not self._loop_task.done()
 
+    @property
+    def packets_until_next_refresh(self) -> int:
+        return max(0, self.packet_refresh_threshold - self._packets_since_last_refresh)
+
     def record_packet(self, pkt: PacketRecord) -> None:
-        """Route packet to flow manager and record window packet count."""
+        """Route packet to flow manager, update counters, and refresh upon packet threshold."""
         self._packets_in_window += 1
+        self._packets_since_last_refresh += 1
         self.metrics.total_packets_routed += 1
+        self.metrics.packets_since_last_refresh = self._packets_since_last_refresh
+        self.metrics.packets_until_next_refresh = self.packets_until_next_refresh
+
         self.flow_manager.add_packet(pkt)
+
+        # Trigger processing refresh every packet_refresh_threshold packets (default 100)
+        if self._packets_since_last_refresh >= self.packet_refresh_threshold:
+            self._packets_since_last_refresh = 0
+            self.metrics.packets_since_last_refresh = 0
+            self.metrics.packets_until_next_refresh = self.packet_refresh_threshold
+            enqueued = self._harvest_and_enqueue_window(reason="packet_count")
+            if enqueued:
+                self.metrics.windows_triggered_by_packet_count += 1
+
+    def _harvest_and_enqueue_window(self, reason: str = "timer") -> bool:
+        """Harvest active and completed flow snapshots and enqueue into detection queue."""
+        now = time.time()
+        self.flow_manager.check_timeouts(now)
+        window_flows = self.flow_manager.get_window_snapshot(only_updated=True)
+        packets_count = self._packets_in_window
+        self._packets_in_window = 0
+
+        if not window_flows and packets_count == 0:
+            return False
+
+        self._window_counter += 1
+        window_id = f"win-{self._window_counter:05d}"
+        window = DetectionWindow(
+            window_id=window_id,
+            window_start=now - self.window_size_seconds,
+            window_end=now,
+            flows=window_flows,
+            packets_analyzed=packets_count,
+        )
+        self.metrics.windows_created += 1
+
+        try:
+            self.window_queue.put_nowait(window)
+            self.metrics.current_queue_size = self.window_queue.qsize()
+            logger.debug(
+                "Window %s enqueued via %s (%d flows, %d packets)",
+                window_id,
+                reason,
+                len(window_flows),
+                packets_count,
+            )
+            return True
+        except asyncio.QueueFull:
+            self.metrics.windows_dropped += 1
+            if now - self._last_drop_warning > 5.0:
+                logger.warning(
+                    "Inference window queue is full (%d)! Dropping window %s. "
+                    "Consider increasing inference max_workers or reducing traffic volume.",
+                    self.queue_size,
+                    window_id,
+                )
+                self._last_drop_warning = now
+            return False
 
     def start(self) -> None:
         """Start the background sliding window timer loop."""
@@ -104,71 +185,28 @@ class WindowManager:
         self._window_counter = 0
         self._window_start_time = time.time()
         self._packets_in_window = 0
+        self._packets_since_last_refresh = 0
         self._loop_task = asyncio.create_task(
             self._window_timer_loop(), name="window-timer-loop"
         )
         logger.info(
-            "WindowManager started (window=%.1fs, step=%.1fs, max_queue=%d)",
+            "WindowManager started (packet_threshold=%d, window=%.1fs, step=%.1fs, max_queue=%d)",
+            self.packet_refresh_threshold,
             self.window_size_seconds,
             self.step_seconds,
             self.queue_size,
         )
 
     async def _window_timer_loop(self) -> None:
-        """Periodically trigger window finalization every step_seconds."""
-        last_drop_warning = 0.0
-
+        """Periodically check flow timeouts and refresh active flows on timer interval."""
         try:
             while not self._stop_event.is_set():
                 await asyncio.sleep(self.step_seconds)
                 if self._stop_event.is_set():
                     break
-
-                # Timeout checks on active flows
-                now = time.time()
-                self.flow_manager.check_timeouts(now)
-
-                # Harvest flows for this window
-                window_flows = self.flow_manager.get_window_snapshot(only_updated=True)
-                packets_count = self._packets_in_window
-                self._packets_in_window = 0
-
-                # Even if 0 packets arrived, if completed flows timed out, process them
-                if not window_flows and packets_count == 0:
-                    continue
-
-                self._window_counter += 1
-                window_id = f"win-{self._window_counter:05d}"
-                window = DetectionWindow(
-                    window_id=window_id,
-                    window_start=now - self.window_size_seconds,
-                    window_end=now,
-                    flows=window_flows,
-                    packets_analyzed=packets_count,
-                )
-                self.metrics.windows_created += 1
-
-                # Enqueue with bounded backpressure handling
-                try:
-                    self.window_queue.put_nowait(window)
-                    self.metrics.current_queue_size = self.window_queue.qsize()
-                    logger.debug(
-                        "Window %s enqueued (%d flows, %d packets)",
-                        window_id,
-                        len(window_flows),
-                        packets_count,
-                    )
-                except asyncio.QueueFull:
-                    self.metrics.windows_dropped += 1
-                    if now - last_drop_warning > 5.0:
-                        logger.warning(
-                            "Inference window queue is full (%d)! Dropping window %s. "
-                            "Consider increasing inference max_workers or reducing traffic volume.",
-                            self.queue_size,
-                            window_id,
-                        )
-                        last_drop_warning = now
-
+                enqueued = self._harvest_and_enqueue_window(reason="timer")
+                if enqueued:
+                    self.metrics.windows_triggered_by_timer += 1
         except asyncio.CancelledError:
             pass
         except Exception as exc:
