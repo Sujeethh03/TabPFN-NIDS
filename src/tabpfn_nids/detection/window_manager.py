@@ -179,6 +179,10 @@ class WindowManager:
         self._stop_event.set()
         if self._loop_task and not self._loop_task.done():
             self._loop_task.cancel()
+            try:
+                await self._loop_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
         # Flush any remaining flows
         remaining_flows = self.flow_manager.flush_all()

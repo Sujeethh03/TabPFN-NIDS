@@ -147,12 +147,12 @@ def split_dataset(
     """
     if strategy == "temporal":
         return temporal_split(df, time_column, train_ratio, val_ratio, test_ratio)
-    elif strategy == "stratified_random":
+    elif strategy in ("stratified", "stratified_random"):
         return stratified_random_split(
             df, label_column, train_ratio, val_ratio, test_ratio, random_seed,
         )
     else:
-        raise ValueError(f"Unknown split strategy: {strategy}")
+        raise ValueError(f"Unknown split strategy: {strategy}. Choose 'temporal' or 'stratified'.")
 
 
 def save_splits(

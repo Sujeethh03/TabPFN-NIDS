@@ -7,6 +7,7 @@ Reuses loaded models to avoid disk reload overhead.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -14,6 +15,8 @@ from typing import Any
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+_INFERENCE_LOCK = threading.Lock()
 
 
 @dataclass
@@ -78,15 +81,16 @@ class ModelWorker:
 
         for model_id, model in models.items():
             try:
-                if hasattr(model, "predict_proba"):
-                    proba = model.predict_proba(X_chunk)
-                else:
-                    preds = model.predict(X_chunk)
-                    preds = np.asarray(preds)
-                    # Convert hard predictions to pseudo-probabilities if predict_proba is absent
-                    p_attack = (preds == 1).astype(float)
-                    p_normal = 1.0 - p_attack
-                    proba = np.column_stack([p_normal, p_attack])
+                with _INFERENCE_LOCK:
+                    if hasattr(model, "predict_proba"):
+                        proba = model.predict_proba(X_chunk)
+                    else:
+                        preds = model.predict(X_chunk)
+                        preds = np.asarray(preds)
+                        # Convert hard predictions to pseudo-probabilities if predict_proba is absent
+                        p_attack = (preds == 1).astype(float)
+                        p_normal = 1.0 - p_attack
+                        proba = np.column_stack([p_normal, p_attack])
 
                 proba = np.asarray(proba)
                 if proba.ndim == 1:

@@ -265,16 +265,17 @@
     }
 
     /* ============================================================
-       BADGES
+       BADGES & MULTICLASS STYLES
     ============================================================ */
     .badge {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 2px 9px;
+      padding: 3px 10px;
       border-radius: 999px;
       font-size: 12px;
       font-weight: 700;
+      white-space: nowrap;
     }
 
     .badge-normal {
@@ -285,6 +286,104 @@
     .badge-attack {
       background: var(--red-bg);
       color: var(--red);
+    }
+
+    .badge-classified {
+      background: #E0E7FF;
+      color: #3730A3;
+    }
+
+    .badge-uncertain {
+      background: #FEF3C7;
+      color: #B45309;
+      border: 1px solid #FCD34D;
+    }
+
+    .badge-cat-normal { background: #DCFCE7; color: #15803D; }
+    .badge-cat-generic { background: #FEF3C7; color: #B45309; }
+    .badge-cat-exploits { background: #FEE2E2; color: #B91C1C; }
+    .badge-cat-fuzzers { background: #EDE9FE; color: #6D28D9; }
+    .badge-cat-reconnaissance { background: #E0F2FE; color: #0369A1; }
+    .badge-cat-dos { background: #FFE4E6; color: #BE123C; }
+    .badge-cat-shellcode { background: #FAE8FF; color: #A21CAF; }
+    .badge-cat-backdoors { background: #FFEDD5; color: #C2410C; }
+    .badge-cat-worms { background: #EEF2FF; color: #4338CA; }
+    .badge-cat-unknown { background: #F3F4F6; color: #4B5563; }
+
+    /* Modal / Drawer */
+    .modal-backdrop {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 23, 42, 0.5);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-backdrop.show {
+      display: flex;
+    }
+
+    .modal-content {
+      background: var(--bg-white);
+      border-radius: var(--r-lg);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-lg);
+      max-width: 820px;
+      width: 100%;
+      max-height: 85vh;
+      overflow-y: auto;
+      padding: 26px 30px;
+      position: relative;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal-title {
+      font-size: 19px;
+      font-weight: 800;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 22px;
+      cursor: pointer;
+      color: var(--text-muted);
+      line-height: 1;
+      padding: 4px;
+      border-radius: 4px;
+      transition: color var(--transition);
+    }
+
+    .modal-close:hover {
+      color: var(--red);
+    }
+
+    .forensic-notice {
+      background: #F8FAFC;
+      border: 1px solid #CBD5E1;
+      border-left: 4px solid var(--green-600);
+      padding: 12px 16px;
+      border-radius: var(--r-sm);
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 20px;
+      line-height: 1.5;
     }
 
     /* ============================================================
@@ -1390,7 +1489,10 @@
         <div class="report-actions">
           <button class="btn btn-outline" id="report-history-btn">Saved analyses</button>
           <button class="btn btn-outline" id="new-analysis-btn">↩ New Analysis</button>
-          <a class="btn btn-outline" id="download-csv-btn" href="#" download>⬇ Download CSV</a>
+          <a class="btn btn-outline" id="download-csv-btn" href="#" download>⬇ CSV</a>
+          <a class="btn btn-outline" id="download-json-btn" href="#" download>⬇ JSON</a>
+          <a class="btn btn-outline" id="download-html-btn" href="#" target="_blank">⬇ HTML Report</a>
+          <a class="btn btn-outline" id="download-docx-btn" href="#" download>⬇ Word (.docx)</a>
         </div>
       </div>
 
@@ -1407,6 +1509,25 @@
       <div class="stat-grid" id="stat-grid"></div>
 
       <hr class="divider">
+
+      <!-- ── ATTACK CATEGORY BREAKDOWN ── -->
+      <div id="multiclass-section">
+        <div class="section-head">
+          <div class="section-head-icon">🛡️</div>
+          <span class="section-head-title">Attack Category Breakdown</span>
+        </div>
+        <div class="charts-row">
+          <div class="chart-card">
+            <div class="chart-title">Attack Categories Detected</div>
+            <div class="bar-chart" id="category-bars"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">Classification Reliability &amp; Uncertainty</div>
+            <div class="kv-list" id="reliability-kv"></div>
+          </div>
+        </div>
+        <hr class="divider">
+      </div>
 
       <!-- ── FILE INFORMATION ── -->
       <div class="section-head">
@@ -1486,6 +1607,23 @@
           <button class="filter-tab" data-filter="normal">Normal</button>
           <button class="filter-tab" data-filter="attack">Attacks</button>
         </div>
+        <select id="category-filter" class="search-box" style="flex:0 0 auto;min-width:160px;cursor:pointer;">
+          <option value="all">All Categories</option>
+          <option value="Normal">Normal</option>
+          <option value="Exploits">Exploits</option>
+          <option value="Generic">Generic</option>
+          <option value="DoS">DoS</option>
+          <option value="Reconnaissance">Reconnaissance</option>
+          <option value="Fuzzers">Fuzzers</option>
+          <option value="Shellcode">Shellcode</option>
+          <option value="Backdoors">Backdoors</option>
+          <option value="Worms">Worms</option>
+        </select>
+        <select id="status-filter" class="search-box" style="flex:0 0 auto;min-width:140px;cursor:pointer;">
+          <option value="all">All Statuses</option>
+          <option value="Classified">Classified</option>
+          <option value="Uncertain">Uncertain</option>
+        </select>
       </div>
       <div class="table-wrap">
         <table class="data-table" id="flow-table">
@@ -1517,6 +1655,19 @@
 
     </section>
 
+    <!-- ── FLOW DETAILS MODAL ── -->
+    <div class="modal-backdrop" id="flow-modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="modal-title" id="modal-flow-title">🔎 Flow Details</div>
+          <button class="modal-close" id="modal-close-btn">&times;</button>
+        </div>
+        <div id="modal-flow-body"></div>
+        <div class="forensic-notice">
+          <strong>Forensic Notice:</strong> Machine learning classifications provide probabilistic evidence and require human analyst verification before taking punitive or firewall blocking actions. Uncertain flows fall below the decision confidence threshold (&lt;50%).
+        </div>
+      </div>
+    </div>
     <section id="screen-history">
       <div class="report-header">
         <div class="report-header-left">
@@ -1599,6 +1750,26 @@
 
     const API = '';
 
+    /* ── Verified Multiclass Mapping (UNSW-NB15 9-class trained model) ── */
+    const CAT_MAP = {
+      0: 'Backdoors', 1: 'DoS', 2: 'Exploits', 3: 'Fuzzers',
+      4: 'Generic', 5: 'Normal', 6: 'Reconnaissance', 7: 'Shellcode', 8: 'Worms',
+      '0': 'Backdoors', '1': 'DoS', '2': 'Exploits', '3': 'Fuzzers',
+      '4': 'Generic', '5': 'Normal', '6': 'Reconnaissance', '7': 'Shellcode', '8': 'Worms'
+    };
+
+    function decodeCategory(cat) {
+      if (cat === null || cat === undefined) return '—';
+      return CAT_MAP[cat] || cat;
+    }
+
+    function fmtThroughput(rps) {
+      if (rps == null || isNaN(rps) || rps <= 0) return '—';
+      if (rps < 1) return Number(rps).toFixed(2) + ' flows/sec';
+      if (rps < 10) return Number(rps).toFixed(1) + ' flows/sec';
+      return fmtNum(Math.round(rps)) + ' flows/sec';
+    }
+
     /* ── DOM shortcuts ── */
     const $ = id => document.getElementById(id);
 
@@ -1613,7 +1784,10 @@
     let sortDesc = false;
     let currentPage = 1;
     let currentFilter = 'all';
+    let currentCategory = 'all';
+    let currentStatus = 'all';
     let currentSearch = '';
+    let allLoadedRows = [];
     let savedAnalyses = [];
     let selectedAnalysisId = null;
     let selectedPredictionOffset = 0;
@@ -1944,7 +2118,11 @@
         if (!res.ok) throw new Error('Failed to fetch report');
         const r = await res.json();
 
-        $('download-csv-btn').href = `${API}/api/pcap/download/${jobId}`;
+        $('download-csv-btn').href = `${API}/api/pcap/download/${jobId}?format=csv`;
+        $('download-json-btn').href = `${API}/api/pcap/download/${jobId}?format=json`;
+        $('download-html-btn').href = `${API}/api/pcap/download/${jobId}?format=html`;
+        $('download-docx-btn').href = `${API}/api/pcap/download/${jobId}?format=docx`;
+
         renderReport(r);
         showScreen('report');
         await loadFlows();
@@ -1964,6 +2142,7 @@
       const model = r.model || {};
       const perf = r.performance || {};
       const proc = r.processing_performance || {};
+      const mc = r.multiclass_summary || {};
       const databasePersistence = r.database_persistence || {};
       if (databasePersistence.error) {
         $('database-persistence-error').textContent = databasePersistence.error;
@@ -1978,6 +2157,32 @@
       const atkPct = preds.attack_percentage || 0;
       const nrmPct = preds.normal_percentage || 0;
 
+      /* Multiclass details */
+      const rawCatCounts = mc.category_counts || (net.attack_category_counts || {});
+      const catCounts = {};
+      for (const [k, v] of Object.entries(rawCatCounts)) {
+        const decoded = decodeCategory(k);
+        catCounts[decoded] = (catCounts[decoded] || 0) + v;
+      }
+      const rawDetected = mc.categories_detected || Object.keys(catCounts).filter(k => k.toLowerCase() !== 'normal' && catCounts[k] > 0);
+      const catDetected = rawDetected.map(c => decodeCategory(c)).filter((v, i, a) => v.toLowerCase() !== 'normal' && a.indexOf(v) === i);
+      const uncertainRate = mc.uncertain_rate || 0;
+      const relDist = mc.reliability_distribution || (net.prediction_status_counts || {});
+      const uncertainCount = relDist['Uncertain'] || mc.uncertain_count || 0;
+      const classifiedCount = relDist['Classified'] || mc.classified_count || (total - uncertainCount);
+
+      /* Update category filter dropdown to only display verified model classes */
+      const modelClasses = (mc.classes && mc.classes.length ? mc.classes : Object.keys(catCounts)).map(c => decodeCategory(c));
+      const uniqueClasses = [...new Set(modelClasses)];
+      const catSelect = $('category-filter');
+      if (catSelect && uniqueClasses.length) {
+        let opts = '<option value="all">All Categories</option>';
+        uniqueClasses.forEach(c => {
+          opts += `<option value="${c}">${c}</option>`;
+        });
+        catSelect.innerHTML = opts;
+      }
+
       /* Meta line */
       const genAt = r.generated_at ? new Date(r.generated_at).toLocaleString() : '—';
       $('report-meta').textContent = `${pcap.filename || '—'}  ·  Analyzed ${genAt}`;
@@ -1987,14 +2192,15 @@
       const cards = [
         { label: 'Total Flows', value: fmtNum(total), cls: '' },
         { label: 'Normal Traffic', value: fmtNum(normal), sub: nrmPct.toFixed(1) + '%', cls: 'green' },
-        { label: 'Attacks Detected', value: fmtNum(attack), sub: atkPct.toFixed(1) + '%', cls: attack > 0 ? 'red' : 'green' },
-        { label: 'Attack Rate', value: atkPct.toFixed(1) + '%', cls: atkPct > 0 ? 'amber' : 'green' },
+        { label: 'Attacks Detected', value: fmtNum(attack), sub: atkPct.toFixed(1) + '% malicious flows', cls: attack > 0 ? 'red' : 'green' },
+        { label: 'Attack Categories', value: catDetected.length ? `${catDetected.length} Distinct Type${catDetected.length > 1 ? 's' : ''}` : 'None', sub: catDetected.length ? catDetected.join(', ') : 'Normal traffic only', cls: catDetected.length ? 'red' : 'green' },
+        { label: 'Uncertain Flows', value: fmtNum(uncertainCount), sub: `${(uncertainRate * 100).toFixed(1)}% (<50% conf)`, cls: uncertainCount > 0 ? 'amber' : 'green' },
         { label: 'Packets', value: fmtNum(extr.packet_count || 0), cls: '' },
         { label: 'Analysis Time', value: analysisTime + 's', cls: '' },
       ];
 
       if (net.unique_src_ips !== undefined)
-        cards.splice(3, 0, { label: 'Unique Src IPs', value: fmtNum(net.unique_src_ips), cls: '' });
+        cards.splice(5, 0, { label: 'Unique Src IPs', value: fmtNum(net.unique_src_ips), cls: '' });
 
       $('stat-grid').innerHTML = cards.map(c => `
     <div class="stat-card ${c.cls}">
@@ -2002,6 +2208,63 @@
       <div class="stat-value">${c.value}</div>
       ${c.sub ? `<div class="stat-sub">${c.sub}</div>` : ''}
     </div>`).join('');
+
+      /* ── Multiclass Attack Category Breakdown ── */
+      const catColors = {
+        normal: '#16A34A', generic: '#D97706', exploits: '#DC2626',
+        fuzzers: '#8B5CF6', reconnaissance: '#0284C7', dos: '#E11D48',
+        shellcode: '#C026D3', backdoors: '#EA580C', worms: '#4F46E5',
+        analysis: '#64748B',
+      };
+      const standardSupported = ['Normal', 'Generic', 'Exploits', 'Fuzzers', 'Reconnaissance', 'DoS', 'Backdoors', 'Shellcode', 'Worms'];
+      const activeClasses = uniqueClasses.length ? uniqueClasses : standardSupported;
+      activeClasses.forEach(c => {
+        if (!(c in catCounts)) catCounts[c] = 0;
+      });
+
+      const entries = Object.entries(catCounts).sort((a, b) => {
+        if (b[1] !== a[1]) return b[1] - a[1];
+        return a[0].localeCompare(b[0]);
+      });
+
+      if (entries.length) {
+        const maxC = entries[0][1] || 1;
+        let barHtml = entries.map(([cat, cnt]) => {
+          const dispCat = decodeCategory(cat);
+          const pct = ((cnt / (total || 1)) * 100).toFixed(1);
+          const barW = ((cnt / maxC) * 100).toFixed(1);
+          const cKey = dispCat.toLowerCase().replace(/ /g, '');
+          const col = catColors[cKey] || '#6B7280';
+          return `
+          <div class="bar-row">
+            <div class="bar-label">
+              <span><span class="badge badge-cat-${cKey}">${dispCat}</span></span>
+              <span>${fmtNum(cnt)} (${pct}%)</span>
+            </div>
+            <div class="bar-track"><div class="bar-fill" style="width:${barW}%;background:${col}"></div></div>
+          </div>`;
+        }).join('');
+
+        barHtml += `
+        <div style="font-size:12px;color:var(--text-muted);margin-top:14px;padding:10px 12px;background:var(--bg-light);border:1px solid var(--border-green);border-radius:var(--r-sm);line-height:1.45;">
+          ℹ️ <strong>UNSW-NB15 Benchmark Coverage:</strong> 9 categories supported. The official UNSW-NB15 category <code>Analysis</code> had 0 flow instances in the extracted training PCAP slice (timestamps 1421927376–1421928304) and is classified as <em>Unsupported</em> by this model version.
+        </div>`;
+        $('category-bars').innerHTML = barHtml;
+
+        const conflictCount = net.model_conflicts_count || 0;
+        $('reliability-kv').innerHTML = [
+          ['Classified Flows', `${fmtNum(classifiedCount)} (${((classifiedCount / (total || 1)) * 100).toFixed(1)}%)`],
+          ['Uncertain Flows', `${fmtNum(uncertainCount)} (${(uncertainRate * 100).toFixed(1)}%)`],
+          ['Model Disagreements', conflictCount > 0 ? `${fmtNum(conflictCount)} flows (flagged Uncertain)` : '0 flows (Full Agreement)'],
+          ['Decision Threshold', `${((mc.uncertainty_threshold || 0.5) * 100).toFixed(0)}% Confidence`],
+          ['Distinct Attack Types', catDetected.length ? catDetected.join(', ') : 'None'],
+          ['Dominant Category', entries[0] ? `${decodeCategory(entries[0][0])} (${entries[0][1]} flows)` : '—'],
+          ['Supported Classes', `${activeClasses.length} Trained Categories`],
+          ['Unsupported Classes', 'Analysis (0 in training slice)'],
+        ].map(([k, v]) => `<div class="kv-row"><span class="kv-key">${k}</span><span class="kv-val">${v}</span></div>`).join('');
+      } else {
+        $('multiclass-section').classList.add('hidden');
+      }
 
       /* ── File info table ── */
       const sizeStr = pcap.size_bytes ? fmtBytes(pcap.size_bytes)
@@ -2078,24 +2341,28 @@
       /* ── Model KV ── */
       const device = model.device || (proc.device) || '—';
       $('model-kv').innerHTML = [
-        ['Model', model.model_type || 'TabPFN'],
-        ['Task', model.task || 'Binary Network Intrusion Detection'],
+        ['Architecture', model.model_type || 'TabPFN Prior-Data Transformer'],
+        ['Task', 'Binary & Multiclass Intrusion Detection'],
         ['Feature Count', (model.feature_count || 67) + ' features per flow'],
         ['Device', device],
-        ['Predictions', fmtNum(model.samples_predicted || total)],
+        ['Binary Classes', 'Normal, Attack'],
+        ['Multiclass Classes', 'Normal, Fuzzers, Exploits, Reconnaissance, DoS, Generic, Shellcode, Worms, Backdoors'],
       ].map(([k, v]) => `<div class="kv-row"><span class="kv-key">${k}</span><span class="kv-val">${v}</span></div>`).join('');
 
       /* ── Performance KV ── */
       const hasPerf = Object.keys(proc).length > 0 || perf.total_analysis_seconds;
       if (hasPerf) {
-        $('perf-kv').innerHTML = [
-          ['Inference Mode', proc.inference_mode || '—'],
-          ['Workers', proc.workers || '—'],
-          ['Chunks', proc.chunks || '—'],
-          ['Inference Time', ((proc.inference_time_seconds || 0) || 0).toFixed(2) + 's'],
-          ['Throughput', proc.rows_per_second ? fmtNum(Math.round(proc.rows_per_second)) + ' flows/sec' : '—'],
-          ['Total Time', analysisTime + 's'],
-        ].map(([k, v]) => `<div class="kv-row"><span class="kv-key">${k}</span><span class="kv-val">${v}</span></div>`).join('');
+        const perfRows = [
+          ['Inference Mode', proc.inference_mode || 'Single model'],
+          ['Workers', proc.workers || 1],
+        ];
+        if (perf.extraction_seconds != null) perfRows.push(['Packet Extraction', perf.extraction_seconds.toFixed(2) + 's']);
+        if (perf.feature_engineering_seconds != null) perfRows.push(['Feature Engineering', perf.feature_engineering_seconds.toFixed(2) + 's']);
+        if (perf.preprocessing_seconds != null) perfRows.push(['Preprocessing & Scaling', perf.preprocessing_seconds.toFixed(2) + 's']);
+        if (proc.inference_time_seconds != null) perfRows.push(['Model Inference', proc.inference_time_seconds.toFixed(2) + 's']);
+        perfRows.push(['Throughput', fmtThroughput(proc.rows_per_second || proc.overall_rows_per_second || perf.flows_per_second)]);
+        perfRows.push(['Total Pipeline Time', analysisTime + 's']);
+        $('perf-kv').innerHTML = perfRows.map(([k, v]) => `<div class="kv-row"><span class="kv-key">${k}</span><span class="kv-val">${v}</span></div>`).join('');
       } else {
         $('perf-kv-card').classList.add('hidden');
       }
@@ -2108,26 +2375,31 @@
       currentPage = page;
       const params = new URLSearchParams({
         page: currentPage, page_size: 50,
-        search: currentSearch, filter_label: currentFilter,
+        search: currentSearch,
+        filter_label: currentFilter,
+        filter_category: currentCategory,
+        filter_status: currentStatus,
         sort_by: sortBy, sort_desc: sortDesc,
       });
       try {
         const res = await fetch(`${API}/api/pcap/flows/${jobId}?${params}`);
         if (!res.ok) return;
         const data = await res.json();
+        allLoadedRows = data.rows || [];
         renderFlows(data);
       } catch (e) { console.error('Flows error:', e); }
     }
 
-    const PRIORITY_COLS = ['flow_id', 'src_ip', 'dst_ip', 'src_port', 'dst_port', 'protocol', 'duration',
-      'fwd_packets', 'bwd_packets', 'fwd_bytes', 'bwd_bytes',
-      'prediction_label', 'normal_probability', 'attack_probability'];
+    const PRIORITY_COLS = [
+      'flow_id', 'src_ip', 'dst_ip', 'src_port', 'dst_port', 'protocol', 'duration',
+      'prediction_label', 'predicted_attack_category', 'attack_category_confidence', 'prediction_status'
+    ];
 
     function renderFlows(data) {
       const { rows, total, total_pages, page } = data;
 
       if (!rows || !rows.length) {
-        $('flow-thead').innerHTML = '<tr><th>No flows found.</th></tr>';
+        $('flow-thead').innerHTML = '<tr><th>No flows matching criteria.</th></tr>';
         $('flow-tbody').innerHTML = '';
         $('page-info').textContent = '0 flows';
         $('page-btns').innerHTML = '';
@@ -2136,8 +2408,10 @@
 
       if (!tableCols.length) {
         const all = Object.keys(rows[0]);
-        tableCols = [...PRIORITY_COLS.filter(c => all.includes(c)),
-        ...all.filter(c => !PRIORITY_COLS.includes(c))].slice(0, 14);
+        tableCols = [
+          ...PRIORITY_COLS.filter(c => all.includes(c)),
+          ...all.filter(c => !PRIORITY_COLS.includes(c))
+        ].slice(0, 14);
       }
 
       /* Head */
@@ -2149,15 +2423,36 @@
       /* Body */
       $('flow-tbody').innerHTML = rows.map(row => {
         const isAttack = row.prediction_label === 'Attack';
-        return '<tr>' + tableCols.map(col => {
+        return `<tr onclick="openFlowModal(${row.flow_id})" style="cursor:pointer;" title="Click to view flow forensics">` + tableCols.map(col => {
           let v = row[col];
           if (col === 'prediction_label') {
             const cls = isAttack ? 'badge-attack' : 'badge-normal';
             const ico = isAttack ? '⚠️' : '✅';
             return `<td><span class="badge ${cls}">${ico} ${v ?? '—'}</span></td>`;
           }
-          if ((col === 'normal_probability' || col === 'attack_probability') && v != null)
-            return `<td>${(v * 100).toFixed(1)}%</td>`;
+          if (col === 'predicted_attack_category') {
+            const dispCat = decodeCategory(v);
+            const cCls = (dispCat || '').toLowerCase().replace(/ /g, '');
+            return `<td><span class="badge badge-cat-${cCls}">${dispCat}</span></td>`;
+          }
+          if (col === 'predicted_attack_category_id') {
+            return `<td>${v ?? '—'}</td>`;
+          }
+          if (col === 'attack_category_confidence' && v != null) {
+            return `<td>${(Number(v) * 100).toFixed(1)}%</td>`;
+          }
+          if (col === 'prediction_status' || col === 'classification_status') {
+            if (row.is_model_conflict) {
+              return `<td><span class="badge badge-uncertain" title="${row.conflict_reason || 'Binary and Multiclass models disagreed'}">⚡ Disagreement</span></td>`;
+            }
+            const sCls = v === 'Classified' ? 'badge-classified' : 'badge-uncertain';
+            return `<td><span class="badge ${sCls}">${v ?? '—'}</span></td>`;
+          }
+          if (col === 'is_model_conflict') {
+            return `<td>${v ? '<span class="badge badge-uncertain">Yes</span>' : '<span class="badge badge-classified">No</span>'}</td>`;
+          }
+          if ((col === 'normal_probability' || col === 'attack_probability' || col === 'binary_attack_probability') && v != null)
+            return `<td>${(Number(v) * 100).toFixed(1)}%</td>`;
           if (v === null || v === undefined) return '<td>—</td>';
           if (typeof v === 'number' && !Number.isInteger(v)) return `<td>${v.toFixed(4)}</td>`;
           return `<td>${v}</td>`;
@@ -2200,8 +2495,19 @@
         src_port: 'Src Port', dst_port: 'Dst Port', protocol: 'Protocol',
         duration: 'Duration', fwd_packets: 'Fwd Pkts', bwd_packets: 'Bwd Pkts',
         fwd_bytes: 'Fwd Bytes', bwd_bytes: 'Bwd Bytes',
-        prediction_label: 'Prediction',
-        normal_probability: 'Normal Prob', attack_probability: 'Attack Prob',
+        prediction_label: 'Binary Label',
+        binary_prediction: 'Binary Label',
+        predicted_attack_category_id: 'Category ID',
+        predicted_attack_category: 'Attack Category',
+        attack_category_confidence: 'Confidence',
+        category_confidence: 'Confidence',
+        prediction_status: 'Status',
+        classification_status: 'Status',
+        is_model_conflict: 'Disagreement',
+        conflict_reason: 'Disagreement Note',
+        normal_probability: 'Normal Prob',
+        attack_probability: 'Attack Prob',
+        binary_attack_probability: 'Attack Prob',
       };
       return map[col] || col.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     }
@@ -2222,6 +2528,16 @@
       });
     });
 
+    $('category-filter').addEventListener('change', e => {
+      currentCategory = e.target.value;
+      loadFlows(1);
+    });
+
+    $('status-filter').addEventListener('change', e => {
+      currentStatus = e.target.value;
+      loadFlows(1);
+    });
+
     /* ================================================================
        ATTACKS TABLE
     ================================================================ */
@@ -2238,8 +2554,10 @@
       } catch (e) { console.error('Attacks error:', e); }
     }
 
-    const ATTACK_COLS = ['src_ip', 'dst_ip', 'src_port', 'dst_port', 'protocol', 'duration',
-      'fwd_packets', 'bwd_packets', 'fwd_bytes', 'bwd_bytes', 'attack_probability'];
+    const ATTACK_COLS = [
+      'flow_id', 'src_ip', 'dst_ip', 'src_port', 'dst_port', 'protocol', 'duration',
+      'predicted_attack_category', 'attack_category_confidence', 'prediction_status', 'attack_probability'
+    ];
 
     function renderAttacks(data) {
       const { rows, total } = data;
@@ -2254,9 +2572,25 @@
 
       $('attacks-thead').innerHTML = '<tr>' + cols.map(c => `<th>${colLabel(c)}</th>`).join('') + '</tr>';
       $('attacks-tbody').innerHTML = rows.slice(0, 100).map(row =>
-        `<tr class="attacks-row-hover">` + cols.map(col => {
+        `<tr class="attacks-row-hover" onclick="openFlowModal(${row.flow_id})" title="Click to view flow forensics">` + cols.map(col => {
           let v = row[col];
-          if (col === 'attack_probability' && v != null) return `<td><span style="color:var(--red);font-weight:700">${(v * 100).toFixed(1)}%</span></td>`;
+          if (col === 'predicted_attack_category') {
+            const dispCat = decodeCategory(v);
+            const cCls = (dispCat || '').toLowerCase().replace(/ /g, '');
+            return `<td><span class="badge badge-cat-${cCls}">${dispCat}</span></td>`;
+          }
+          if (col === 'predicted_attack_category_id') {
+            return `<td>${v ?? '—'}</td>`;
+          }
+          if (col === 'attack_category_confidence' && v != null) {
+            return `<td>${(Number(v) * 100).toFixed(1)}%</td>`;
+          }
+          if (col === 'prediction_status') {
+            const sCls = v === 'Classified' ? 'badge-classified' : 'badge-uncertain';
+            return `<td><span class="badge ${sCls}">${v ?? '—'}</span></td>`;
+          }
+          if (col === 'attack_probability' && v != null)
+            return `<td><span style="color:var(--red);font-weight:700">${(Number(v) * 100).toFixed(1)}%</span></td>`;
           if (v === null || v === undefined) return '<td>—</td>';
           if (typeof v === 'number' && !Number.isInteger(v)) return `<td>${v.toFixed(4)}</td>`;
           return `<td>${v}</td>`;
@@ -2265,6 +2599,43 @@
 
       $('attacks-count').textContent = `${fmtNum(total)} attack flow${total !== 1 ? 's' : ''} detected${total > 100 ? ' (showing top 100 by attack probability)' : ''}.`;
     }
+
+    /* ================================================================
+       FLOW FORENSICS MODAL
+    ================================================================ */
+    function openFlowModal(flowId) {
+      const row = allLoadedRows.find(r => r.flow_id === flowId);
+      if (!row) return;
+      $('modal-flow-title').innerHTML = `🔎 Flow #${row.flow_id}: <code>${row.src_ip || '—'}:${row.src_port || '—'} → ${row.dst_ip || '—'}:${row.dst_port || '—'}</code>`;
+      let html = '<div class="info-table-wrap"><table class="info-table">';
+      for (const [k, v] of Object.entries(row)) {
+        let disp = v;
+        if (k === 'prediction_label') {
+          const isAtk = v === 'Attack';
+          disp = `<span class="badge ${isAtk ? 'badge-attack' : 'badge-normal'}">${v}</span>`;
+        } else if (k === 'predicted_attack_category') {
+          const dispCat = decodeCategory(v);
+          const cCls = (dispCat || '').toLowerCase().replace(/ /g, '');
+          disp = `<span class="badge badge-cat-${cCls}">${dispCat}</span>`;
+        } else if (k === 'prediction_status') {
+          const sCls = v === 'Classified' ? 'badge-classified' : 'badge-uncertain';
+          disp = `<span class="badge ${sCls}">${v}</span>`;
+        } else if (k.endsWith('_probability') || k === 'attack_category_confidence' || k.startsWith('prob_')) {
+          if (v != null) disp = `${(Number(v) * 100).toFixed(2)}%`;
+        }
+        html += `<tr><td>${colLabel(k)}</td><td>${disp ?? '—'}</td></tr>`;
+      }
+      html += '</table>';
+      html += '<div style="font-size:12px;color:var(--text-muted);margin-top:14px;padding:10px 12px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:var(--r-sm);line-height:1.4;">🛡️ <strong>Forensic Notice:</strong> <em>Model predictions are statistical machine-learning estimates based on learned feature patterns, not verified forensic proof. Packet-level corroboration required before enforcement action.</em></div>';
+      html += '</div>';
+      $('modal-flow-body').innerHTML = html;
+      $('flow-modal').classList.add('show');
+    }
+
+    $('modal-close-btn').addEventListener('click', () => $('flow-modal').classList.remove('show'));
+    $('flow-modal').addEventListener('click', e => {
+      if (e.target === $('flow-modal')) $('flow-modal').classList.remove('show');
+    });
 
     /* ================================================================
        HELPERS
