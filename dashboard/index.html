@@ -1326,9 +1326,11 @@
         <div class="logo-icon">🛡️</div>
         <div class="logo-name">TabPFN<span>-NIDS</span></div>
       </a>
-      <div style="display:flex;align-items:center;gap:12px;">
-        <button class="btn btn-outline" id="saved-analyses-btn">Saved analyses</button>
-        <span class="header-badge">PCAP Network Intrusion Analysis</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="btn btn-primary" id="nav-pcap-btn" style="padding:7px 14px;font-size:13px;">📁 PCAP Analysis</button>
+        <button class="btn btn-outline" id="nav-live-btn" style="padding:7px 14px;font-size:13px;">🔴 Live Sniffing</button>
+        <button class="btn btn-outline" id="saved-analyses-btn" style="padding:7px 14px;font-size:13px;">💾 Saved analyses</button>
+        <span class="header-badge" id="header-mode-badge">PCAP Analysis</span>
       </div>
     </div>
   </header>
@@ -1751,6 +1753,166 @@
       </section>
     </section>
 
+    <!-- ===========================================================
+       SCREEN 4 — LIVE NETWORK SNIFFING & INTRUSION DEFENSE
+    =========================================================== -->
+    <section id="screen-live" style="display:none;padding-top:36px;">
+
+      <!-- Live Header -->
+      <div class="report-header">
+        <div class="report-header-left">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span id="live-pulse-dot" style="width:12px;height:12px;border-radius:50%;background:#9CA3AF;display:inline-block;"></span>
+            <h1 style="font-size:24px;font-weight:800;color:var(--text-primary);margin:0;">🔴 Real-Time Network Sniffing &amp; Defense</h1>
+          </div>
+          <div class="report-meta" id="live-session-meta">Live packet capture · TabPFN dual-model inference · Host firewall defense</div>
+        </div>
+        <div class="report-actions">
+          <button class="btn btn-primary" id="live-start-btn">▶ Start Sniffing</button>
+          <button class="btn btn-danger" id="live-stop-btn" disabled>⏹ Stop Sniffing</button>
+        </div>
+      </div>
+
+      <!-- Sniffing Controls Card -->
+      <div class="card mb-6" style="padding: 22px 24px; margin-bottom: 24px;">
+        <div class="section-head" style="margin-bottom: 16px;">
+          <div class="section-head-icon">⚙️</div>
+          <span class="section-head-title">Capture &amp; Firewall Controls</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(210px, 1fr));gap:16px;align-items:end;">
+          <div>
+            <label style="display:block;font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Network Interface</label>
+            <select id="live-interface-select" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:14px;background:#fff;"></select>
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Packet Refresh Threshold</label>
+            <input type="number" id="live-refresh-threshold" value="100" min="1" max="10000" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:14px;background:#fff;" title="Triggers flow refresh & inference every N packets">
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Firewall Response Mode</label>
+            <select id="live-firewall-mode" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:14px;background:#fff;">
+              <option value="monitor_only">Monitor Only (Audit logs only)</option>
+              <option value="block_attacker">Block Attacker (Linux iptables)</option>
+            </select>
+          </div>
+          <div style="padding-bottom:8px;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);cursor:pointer;">
+              <input type="checkbox" id="live-admin-authorized" style="width:16px;height:16px;cursor:pointer;">
+              <span>Authorize Firewall Enforcement</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Real-Time Telemetry Stat Grid -->
+      <div class="section-head">
+        <div class="section-head-icon">📊</div>
+        <span class="section-head-title">Real-Time Telemetry &amp; Refresh Counter</span>
+      </div>
+      <div class="stat-grid" id="live-stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">Packets Captured</div>
+          <div class="stat-value" id="stat-live-captured">0</div>
+          <div class="stat-sub">From interface</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-label">Packets Processed</div>
+          <div class="stat-value" id="stat-live-processed">0</div>
+          <div class="stat-sub">Ingested into flows</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Active Flows</div>
+          <div class="stat-value" id="stat-live-flows">0</div>
+          <div class="stat-sub">Tracked sessions</div>
+        </div>
+        <div class="stat-card amber" id="card-refresh-counter" style="border: 2px solid #F59E0B; background: #FFFBEB;">
+          <div class="stat-label" style="color: #92400E;">Next Refresh In</div>
+          <div class="stat-value" id="stat-live-next-refresh" style="color: #B45309;">100</div>
+          <div class="stat-sub" id="stat-live-refresh-sub">packets until model inference</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Windows Processed</div>
+          <div class="stat-value" id="stat-live-windows">0</div>
+          <div class="stat-sub">Evaluated batches</div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-label">Attacks Detected</div>
+          <div class="stat-value" id="stat-live-attacks">0</div>
+          <div class="stat-sub">Malicious flows flagged</div>
+        </div>
+        <div class="stat-card" id="card-inference-fails">
+          <div class="stat-label">Inference Failures</div>
+          <div class="stat-value" id="stat-live-failures">0</div>
+          <div class="stat-sub">Error count</div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Firewall Defense & Status Section -->
+      <div class="section-head">
+        <div class="section-head-icon">🛡️</div>
+        <span class="section-head-title">Firewall Defense &amp; Active Rules</span>
+      </div>
+      <div class="charts-row" style="margin-bottom:24px;">
+        <div class="card" style="padding:20px;">
+          <div class="chart-title">Firewall Policy &amp; Status</div>
+          <div class="kv-list">
+            <div class="kv-row"><span class="kv-key">Response Mode</span><span class="kv-val" id="fw-val-mode" style="text-transform:uppercase;">MONITOR_ONLY</span></div>
+            <div class="kv-row"><span class="kv-key">Administrator Authorization</span><span class="kv-val" id="fw-val-auth">NO</span></div>
+            <div class="kv-row"><span class="kv-key">System Privilege Status</span><span class="kv-val" id="fw-val-priv">Checking...</span></div>
+            <div class="kv-row"><span class="kv-key">Active Blocked IPs</span><span class="kv-val" id="fw-val-blocked-count">0</span></div>
+            <div class="kv-row"><span class="kv-key">Total Blocks Applied</span><span class="kv-val" id="fw-val-applied-count">0</span></div>
+            <div class="kv-row"><span class="kv-key">Protected Allowlist</span><span class="kv-val">Loopback, Link-Local, Multicast, Management</span></div>
+          </div>
+        </div>
+        <div class="card" style="padding:20px;">
+          <div class="chart-title">Blocked Source IPs</div>
+          <div id="fw-blocked-ips-list" style="max-height:190px;overflow-y:auto;font-size:13px;color:var(--text-secondary);">
+            <div style="padding:16px;text-align:center;color:var(--text-muted);">No IP addresses currently blocked.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Firewall Failure Warning Alert (shown only when failure occurs) -->
+      <div class="error-card" id="live-fw-error-card" style="margin-bottom:24px;">
+        <div class="error-card-title">⚠️ Firewall Execution Notice</div>
+        <div class="error-card-msg" id="live-fw-error-msg"></div>
+        <div style="font-size:12px;color:#991B1B;margin-top:6px;">Intrusion detection, feature extraction, and packet capture remain fully operational.</div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Real-Time Intrusion Alerts Table -->
+      <div class="section-head">
+        <div class="section-head-icon">⚡</div>
+        <span class="section-head-title">Real-Time Intrusion Alerts Feed</span>
+      </div>
+      <div class="table-wrap">
+        <table class="flow-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Flow ID</th>
+              <th>Source IP:Port</th>
+              <th>Destination IP:Port</th>
+              <th>Proto</th>
+              <th>Duration</th>
+              <th>Prediction</th>
+              <th>Attack Category</th>
+              <th>Confidence</th>
+              <th>Status</th>
+              <th>Firewall Action</th>
+            </tr>
+          </thead>
+          <tbody id="live-detections-tbody">
+            <tr><td colspan="11" style="text-align:center;padding:24px;color:var(--text-muted);">Live detection stream idle. Click 'Start Sniffing' to begin.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </section>
+
   </div><!-- /page -->
 
 
@@ -1820,14 +1982,24 @@
         previousScreen = currentScreen;
         currentScreen = name;
       }
-      ['screen-upload', 'screen-progress', 'screen-report', 'screen-history'].forEach(id => {
+      ['screen-upload', 'screen-progress', 'screen-report', 'screen-history', 'screen-live'].forEach(id => {
         const el = $(id);
         if (el) el.style.display = (id === `screen-${name}`) ? 'block' : 'none';
       });
 
+      if ($('nav-pcap-btn') && $('nav-live-btn')) {
+        const isLive = (name === 'live');
+        $('nav-pcap-btn').className = isLive ? 'btn btn-outline' : 'btn btn-primary';
+        $('nav-live-btn').className = isLive ? 'btn btn-primary' : 'btn btn-outline';
+        if ($('header-mode-badge')) {
+          $('header-mode-badge').textContent = isLive ? 'Live Sniffing' : 'PCAP Analysis';
+        }
+      }
+
       if (updateHistory) {
         let hash = '#upload';
         if (name === 'history') hash = '#history';
+        else if (name === 'live') hash = '#live';
         else if (name === 'report') {
           if (currentReportMode === 'saved' && currentSavedAnalysis) {
             hash = `#analysis/${encodeURIComponent(currentSavedAnalysis.id)}`;
@@ -1857,6 +2029,10 @@
             return;
           }
         }
+        if (previousScreen === 'live') {
+          showScreen('live');
+          return;
+        }
         if (previousScreen === 'upload') {
           showScreen('upload');
           return;
@@ -1872,6 +2048,19 @@
       // Fallback for direct navigation or when previous state is unavailable
       showScreen('upload');
     }
+
+    $('nav-pcap-btn').addEventListener('click', () => {
+      if (lastLiveReport || jobId) {
+        showScreen('report');
+      } else {
+        showScreen('upload');
+      }
+    });
+
+    $('nav-live-btn').addEventListener('click', () => {
+      showScreen('live');
+      void initLiveSniffing();
+    });
 
     $('saved-analyses-btn').addEventListener('click', () => { void openSavedAnalyses(); });
     $('report-history-btn').addEventListener('click', () => { void openSavedAnalyses(); });
@@ -3134,9 +3323,280 @@
       return (b / 1048576).toFixed(2) + ' MB';
     }
 
-    function sanitise(s) {
-      return String(s || '').replace(/<[^>]*>/g, '').slice(0, 400);
+    /* ================================================================
+       LIVE NETWORK SNIFFING & DEFENSE CONTROLS
+    ================================================================ */
+    let liveWs = null;
+    let livePollTimer = null;
+    let isLiveRunning = false;
+    let liveInterfacesLoaded = false;
+    let liveDetectionRows = [];
+
+    async function initLiveSniffing() {
+      if (!liveInterfacesLoaded) {
+        await loadLiveInterfaces();
+      }
+      await refreshLiveStatus();
+      connectLiveWebSocket();
+
+      clearInterval(livePollTimer);
+      livePollTimer = setInterval(refreshLiveStatus, 1500);
     }
+
+    async function loadLiveInterfaces() {
+      const select = $('live-interface-select');
+      select.innerHTML = '<option value="">Discovering interfaces…</option>';
+      try {
+        const res = await fetch(`${API}/capture/interfaces`);
+        if (!res.ok) throw new Error('Could not discover interfaces');
+        const data = await res.json();
+        const ifaces = data.interfaces || [];
+        if (!ifaces.length) {
+          select.innerHTML = '<option value="">No interfaces found</option>';
+          return;
+        }
+        select.innerHTML = ifaces.map(i => {
+          const label = `${i.name} ${i.ip_addresses?.length ? `(${i.ip_addresses[0]})` : ''} - ${i.description || ''}`;
+          return `<option value="${escapeHtml(i.name)}">${escapeHtml(label.trim())}</option>`;
+        }).join('');
+        liveInterfacesLoaded = true;
+      } catch (err) {
+        console.warn('Interface discovery notice:', err);
+        select.innerHTML = '<option value="any">Default Interface (any)</option>';
+      }
+    }
+
+    async function refreshLiveStatus() {
+      try {
+        const res = await fetch(`${API}/capture/status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        updateLiveDashboard(data);
+      } catch (err) {
+        /* background polling */
+      }
+    }
+
+    function updateLiveDashboard(data) {
+      isLiveRunning = !!data.running;
+
+      // Status indicator & controls
+      const dot = $('live-pulse-dot');
+      if (dot) {
+        dot.style.background = isLiveRunning ? '#22C55E' : '#9CA3AF';
+        dot.style.boxShadow = isLiveRunning ? '0 0 8px #22C55E' : 'none';
+      }
+      $('live-start-btn').disabled = isLiveRunning;
+      $('live-stop-btn').disabled = !isLiveRunning;
+
+      $('live-session-meta').textContent = isLiveRunning
+        ? `Sniffing active on interface '${escapeHtml(data.interface || '—')}' · Uptime: ${data.uptime_seconds?.toFixed(1) || 0}s`
+        : 'Live continuous packet capture · TabPFN dual-model detection · Automated host defense';
+
+      // Telemetry metrics
+      $('stat-live-captured').textContent = fmtNum(data.packets_captured || 0);
+      $('stat-live-processed').textContent = fmtNum(data.packets_processed || 0);
+      $('stat-live-flows').textContent = fmtNum(data.active_flows || 0);
+
+      const threshold = data.packet_refresh_threshold || 100;
+      const untilNext = data.packets_until_next_refresh != null ? data.packets_until_next_refresh : threshold;
+      $('stat-live-next-refresh').textContent = fmtNum(untilNext);
+      $('stat-live-refresh-sub').textContent = `of ${threshold} packets until next refresh`;
+
+      $('stat-live-windows').textContent = fmtNum(data.windows_processed || 0);
+      $('stat-live-attacks').textContent = fmtNum(data.attack_count || 0);
+      $('stat-live-failures').textContent = fmtNum(data.inference_jobs_failed || 0);
+
+      // Firewall status
+      const fw = data.firewall;
+      if (fw) {
+        $('fw-val-mode').textContent = (fw.mode || 'monitor_only').toUpperCase();
+        $('fw-val-mode').style.color = fw.mode === 'block_attacker' ? '#DC2626' : '#4B5563';
+        $('fw-val-auth').textContent = fw.admin_authorized ? 'YES (AUTHORIZED)' : 'NO';
+        $('fw-val-auth').style.color = fw.admin_authorized ? '#16A34A' : '#9CA3AF';
+        $('fw-val-priv').textContent = fw.privilege_status || 'Checking…';
+        $('fw-val-blocked-count').textContent = fmtNum(fw.active_blocks_count || 0);
+        $('fw-val-applied-count').textContent = fmtNum(fw.total_blocks_applied || 0);
+
+        // Failure notice
+        const fwErrCard = $('live-fw-error-card');
+        if (fw.last_failure) {
+          $('live-fw-error-msg').textContent = fw.last_failure;
+          fwErrCard.classList.add('show');
+        } else {
+          fwErrCard.classList.remove('show');
+        }
+
+        // Active blocked IPs
+        const blockedListEl = $('fw-blocked-ips-list');
+        const blockedIps = fw.active_blocked_ips || [];
+        if (!blockedIps.length) {
+          blockedListEl.innerHTML = '<div style="padding:14px;text-align:center;color:var(--text-muted);">No IP addresses currently blocked.</div>';
+        } else {
+          blockedListEl.innerHTML = blockedIps.map(ip => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border);">
+              <span style="font-family:monospace;font-weight:700;color:#DC2626;">🚫 ${escapeHtml(ip)}</span>
+              <button class="page-btn" style="padding:3px 8px;font-size:11px;" onclick="unblockFirewallIp('${escapeHtml(ip)}')">Unblock</button>
+            </div>`).join('');
+        }
+      }
+    }
+
+    async function startLiveSniffing() {
+      const iface = $('live-interface-select').value;
+      if (!iface) {
+        alert('Please select a network interface first.');
+        return;
+      }
+
+      const threshold = parseInt($('live-refresh-threshold').value, 10) || 100;
+      const fwMode = $('live-firewall-mode').value;
+      const adminAuth = $('live-admin-authorized').checked;
+
+      $('live-start-btn').disabled = true;
+      $('live-start-btn').textContent = 'Starting…';
+
+      try {
+        const res = await fetch(`${API}/capture/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            interface: iface,
+            packet_refresh_threshold: threshold,
+            firewall_mode: fwMode,
+            admin_authorized: adminAuth,
+            min_confidence_to_block: 0.80,
+            window_size_seconds: 10.0,
+            step_seconds: 5.0,
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail?.error || errData.detail || 'Failed to start live capture');
+        }
+
+        await refreshLiveStatus();
+      } catch (err) {
+        alert('Could not start live sniffing: ' + err.message);
+      } finally {
+        $('live-start-btn').textContent = '▶ Start Sniffing';
+        await refreshLiveStatus();
+      }
+    }
+
+    async function stopLiveSniffing() {
+      $('live-stop-btn').disabled = true;
+      $('live-stop-btn').textContent = 'Stopping…';
+      try {
+        await fetch(`${API}/capture/stop`, { method: 'POST' });
+        await refreshLiveStatus();
+      } catch (err) {
+        console.error('Stop capture error:', err);
+      } finally {
+        $('live-stop-btn').textContent = '⏹ Stop Sniffing';
+        await refreshLiveStatus();
+      }
+    }
+
+    async function unblockFirewallIp(ip) {
+      try {
+        const res = await fetch(`${API}/firewall/unblock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source_ip: ip }),
+        });
+        if (res.ok) {
+          await refreshLiveStatus();
+        }
+      } catch (err) {
+        console.error('Unblock failed:', err);
+      }
+    }
+
+    function connectLiveWebSocket() {
+      if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${proto}//${location.host}/ws/detections`;
+      try {
+        liveWs = new WebSocket(wsUrl);
+        liveWs.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'capture_status' && msg.data) {
+              updateLiveDashboard(msg.data);
+            } else if (msg.type === 'detection' && msg.data) {
+              handleLiveDetectionEvent(msg.data);
+            }
+          } catch (e) {
+            console.debug('WS parse error:', e);
+          }
+        };
+        liveWs.onclose = () => {
+          setTimeout(() => {
+            if (currentScreen === 'live') connectLiveWebSocket();
+          }, 4000);
+        };
+      } catch (err) {
+        console.debug('WebSocket connection error:', err);
+      }
+    }
+
+    function handleLiveDetectionEvent(detection) {
+      const tbody = $('live-detections-tbody');
+      const flows = detection.flow_predictions || [];
+      if (!flows.length) return;
+
+      flows.forEach(flow => {
+        const isAtk = flow.prediction === 1 || flow.prediction_label === 'Attack';
+        const cat = flow.predicted_attack_category || (isAtk ? 'Attack' : 'Normal');
+        const conf = flow.attack_category_confidence ? (flow.attack_category_confidence * 100).toFixed(1) + '%' : '—';
+        const fwAction = flow.firewall_action || 'NONE';
+
+        let badgeStyle = isAtk
+          ? 'background:#FEE2E2;color:#DC2626;border:1px solid #FECACA;'
+          : 'background:#DCFCE7;color:#16A34A;border:1px solid #BBF7D0;';
+
+        let fwBadge = '';
+        if (fwAction === 'BLOCKED') {
+          fwBadge = '<span style="background:#DC2626;color:#fff;padding:2px 6px;border-radius:4px;font-weight:700;font-size:11px;">BLOCKED</span>';
+        } else if (fwAction === 'MONITORED') {
+          fwBadge = '<span style="background:#FEF3C7;color:#D97706;padding:2px 6px;border-radius:4px;font-weight:600;font-size:11px;">LOGGED</span>';
+        } else if (fwAction === 'ALLOWLISTED') {
+          fwBadge = '<span style="background:#E0E7FF;color:#4338CA;padding:2px 6px;border-radius:4px;font-weight:600;font-size:11px;">PROTECTED</span>';
+        } else {
+          fwBadge = `<span style="color:var(--text-muted);font-size:11px;">${escapeHtml(fwAction)}</span>`;
+        }
+
+        const timeStr = new Date().toLocaleTimeString();
+        const trHtml = `
+          <tr style="${isAtk ? 'background:#FFF5F5;' : ''}">
+            <td style="font-size:12px;color:var(--text-muted);">${timeStr}</td>
+            <td style="font-family:monospace;font-size:12px;">${escapeHtml(flow.flow_id)}</td>
+            <td style="font-family:monospace;font-size:12px;">${escapeHtml(flow.src_ip)}:${escapeHtml(String(flow.src_port))}</td>
+            <td style="font-family:monospace;font-size:12px;">${escapeHtml(flow.dst_ip)}:${escapeHtml(String(flow.dst_port))}</td>
+            <td><span class="badge badge-normal" style="font-size:10px;">${escapeHtml(flow.protocol || 'TCP')}</span></td>
+            <td>${flow.duration != null ? flow.duration.toFixed(2) + 's' : '—'}</td>
+            <td><span style="display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;font-size:11px;${badgeStyle}">${isAtk ? 'Attack' : 'Normal'}</span></td>
+            <td><strong>${escapeHtml(cat)}</strong></td>
+            <td>${conf}</td>
+            <td><span style="font-size:11px;color:${flow.prediction_status === 'Classified' ? '#16A34A' : '#D97706'};">${escapeHtml(flow.prediction_status || 'Classified')}</span></td>
+            <td>${fwBadge}</td>
+          </tr>`;
+
+        liveDetectionRows.unshift(trHtml);
+      });
+
+      if (liveDetectionRows.length > 200) {
+        liveDetectionRows = liveDetectionRows.slice(0, 200);
+      }
+      tbody.innerHTML = liveDetectionRows.join('');
+    }
+
+    $('live-start-btn').addEventListener('click', startLiveSniffing);
+    $('live-stop-btn').addEventListener('click', stopLiveSniffing);
 
     /* ================================================================
        INIT & BROWSER HISTORY ROUTING
@@ -3148,6 +3608,9 @@
         void openSavedAnalysis(id, null, false);
       } else if (hash === '#history') {
         showScreen('history', false);
+      } else if (hash === '#live') {
+        showScreen('live', false);
+        void initLiveSniffing();
       } else if (hash === '#report') {
         if (currentReportMode === 'saved' && currentSavedAnalysis) {
           showScreen('report', false);

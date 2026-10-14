@@ -37,12 +37,19 @@ from tabpfn_nids.capture.live_pipeline import (
 )
 from tabpfn_nids.config import PROJECT_ROOT
 
+from tabpfn_nids.firewall.firewall_manager import (
+    FirewallConfig,
+    FirewallManager,
+    FirewallMode,
+)
+
 logger = logging.getLogger(__name__)
 
 DASHBOARD_FILE = PROJECT_ROOT / "dashboard" / "index.html"
 
 # Global state
 event_bus = EventBus(history_limit=50)
+global_firewall_manager = FirewallManager(FirewallConfig())
 coordinator: LivePipelineCoordinator | None = None
 coordinator_lock = asyncio.Lock()
 
@@ -169,6 +176,12 @@ class StartCaptureRequest(BaseModel):
         ...,
         description="Network interface name, index, or device string (e.g. 'Wi-Fi' or '4')",
     )
+    packet_refresh_threshold: int = Field(
+        default=100,
+        ge=1,
+        le=10000,
+        description="Packet count counter threshold to trigger flow refresh and inference",
+    )
     window_size_seconds: float = Field(
         default=10.0,
         gt=0.0,
@@ -201,6 +214,41 @@ class StartCaptureRequest(BaseModel):
         default=None,
         description="Optional BPF capture filter (e.g. 'ip and not port 22')",
     )
+    firewall_mode: str = Field(
+        default="monitor_only",
+        description="Firewall response mode: 'monitor_only' or 'block_attacker'",
+    )
+    admin_authorized: bool = Field(
+        default=False,
+        description="Explicit administrator authorization to provision firewall rules",
+    )
+    min_confidence_to_block: float = Field(
+        default=0.80,
+        ge=0.0,
+        le=1.0,
+        description="Minimum detection confidence required before blocking",
+    )
+    rule_expiration_seconds: float = Field(
+        default=300.0,
+        ge=0.0,
+        description="Firewall rule expiration in seconds (0 = permanent)",
+    )
+    trusted_allowlist: list[str] = Field(
+        default_factory=list,
+        description="List of IP addresses or CIDRs protected from firewall blocks",
+    )
+
+
+class UpdateFirewallConfigRequest(BaseModel):
+    mode: str | None = Field(default=None, description="'monitor_only' or 'block_attacker'")
+    admin_authorized: bool | None = Field(default=None, description="Explicit administrator authorization")
+    min_confidence_to_block: float | None = Field(default=None, ge=0.0, le=1.0)
+    rule_expiration_seconds: float | None = Field(default=None, ge=0.0)
+    trusted_allowlist: list[str] | None = None
+
+
+class UnblockIpRequest(BaseModel):
+    source_ip: str = Field(..., description="Source IP address to unblock")
 
 
 # ─── Endpoints ─────────────────────────────────────────────────────────────────
@@ -266,12 +314,18 @@ async def start_capture(req: StartCaptureRequest):
         pipeline_config = LivePipelineConfig(
             interface=req.interface,
             tshark_path=req.tshark_path,
+            packet_refresh_threshold=req.packet_refresh_threshold,
             window_size_seconds=req.window_size_seconds,
             step_seconds=req.step_seconds,
             flow_timeout_seconds=req.flow_timeout_seconds,
             idle_timeout_seconds=req.flow_timeout_seconds,
             max_workers=req.max_workers,
             bpf_filter=req.bpf_filter,
+            firewall_mode=req.firewall_mode,
+            firewall_admin_authorized=req.admin_authorized,
+            firewall_min_confidence=req.min_confidence_to_block,
+            firewall_rule_expiration=req.rule_expiration_seconds,
+            firewall_trusted_allowlist=req.trusted_allowlist,
         )
 
         coordinator = LivePipelineCoordinator(
@@ -314,8 +368,11 @@ async def start_capture(req: StartCaptureRequest):
         return {
             "status": "started",
             "interface": req.interface,
+            "packet_refresh_threshold": req.packet_refresh_threshold,
             "window_size_seconds": req.window_size_seconds,
             "step_seconds": req.step_seconds,
+            "firewall_mode": req.firewall_mode,
+            "admin_authorized": req.admin_authorized,
         }
 
 
@@ -351,16 +408,73 @@ async def get_status():
         "packets_captured": 0,
         "packets_processed": 0,
         "packets_dropped": 0,
+        "packet_refresh_threshold": 100,
+        "packets_until_next_refresh": 100,
         "active_flows": 0,
         "windows_processed": 0,
         "attack_count": 0,
         "job_queue_size": 0,
         "windows_dropped": 0,
+        "windows_triggered_by_packet_count": 0,
+        "windows_triggered_by_timer": 0,
         "inference_jobs_failed": 0,
         "uptime_seconds": 0.0,
         "tshark_pid": None,
         "websocket_subscribers": event_bus.subscriber_count,
+        "firewall": global_firewall_manager.get_status(),
     }
+
+
+# ─── Firewall Endpoints ────────────────────────────────────────────────────────
+
+@app.get("/firewall/status", summary="Get host firewall status and rules")
+async def get_firewall_status():
+    """Retrieve current firewall response mode, active block rules, and capabilities."""
+    active_mgr = coordinator.firewall_manager if (coordinator and coordinator.is_running) else global_firewall_manager
+    status_data = active_mgr.get_status()
+    status_data["active_blocks"] = active_mgr.get_active_blocks()
+    return status_data
+
+
+@app.post("/firewall/config", summary="Configure firewall response settings")
+async def update_firewall_config(req: UpdateFirewallConfigRequest):
+    """Update firewall response mode, administrator authorization, or allowlist."""
+    active_mgr = coordinator.firewall_manager if (coordinator and coordinator.is_running) else global_firewall_manager
+    try:
+        active_mgr.update_config(
+            mode=req.mode,
+            admin_authorized=req.admin_authorized,
+            min_confidence_to_block=req.min_confidence_to_block,
+            rule_expiration_seconds=req.rule_expiration_seconds,
+            trusted_allowlist=req.trusted_allowlist,
+        )
+        # Also sync global manager if running coordinator
+        if coordinator and coordinator.firewall_manager != global_firewall_manager:
+            global_firewall_manager.update_config(
+                mode=req.mode,
+                admin_authorized=req.admin_authorized,
+                min_confidence_to_block=req.min_confidence_to_block,
+                rule_expiration_seconds=req.rule_expiration_seconds,
+                trusted_allowlist=req.trusted_allowlist,
+            )
+        return {"status": "updated", "config": active_mgr.get_status()}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/firewall/unblock", summary="Manually unblock an IP address")
+async def unblock_firewall_ip(req: UnblockIpRequest):
+    """Manually revoke a firewall block rule for a source IP."""
+    active_mgr = coordinator.firewall_manager if (coordinator and coordinator.is_running) else global_firewall_manager
+    event = active_mgr.unblock_ip(req.source_ip)
+    return event.to_dict()
+
+
+@app.get("/firewall/logs", summary="List firewall audit logs")
+async def get_firewall_logs(limit: int = 50):
+    """Retrieve recent firewall defense actions and evaluation results."""
+    active_mgr = coordinator.firewall_manager if (coordinator and coordinator.is_running) else global_firewall_manager
+    return {"logs": active_mgr.get_audit_logs(limit=limit)}
 
 
 @app.get("/capture/statistics", summary="Get detailed performance statistics")

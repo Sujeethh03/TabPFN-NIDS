@@ -72,9 +72,9 @@ class TaskConfig:
     mode: str = "binary"
     binary: dict[str, int] = field(default_factory=lambda: {"normal": 0, "attack": 1})
     multiclass: dict[str, int] = field(default_factory=lambda: {
-        "Normal": 0, "Fuzzers": 1, "Analysis": 2, "Backdoors": 3,
-        "DoS": 4, "Exploits": 5, "Generic": 6, "Reconnaissance": 7,
-        "Shellcode": 8, "Worms": 9,
+        "Backdoors": 0, "DoS": 1, "Exploits": 2, "Fuzzers": 3,
+        "Generic": 4, "Normal": 5, "Reconnaissance": 6, "Shellcode": 7,
+        "Worms": 8,
     })
 
 

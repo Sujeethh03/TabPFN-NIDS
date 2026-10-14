@@ -18,6 +18,12 @@ from tabpfn_nids.inference.live_inference_engine import (
     LiveInferenceEngine,
 )
 
+from tabpfn_nids.firewall.firewall_manager import (
+    FirewallConfig,
+    FirewallManager,
+    FirewallMode,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +35,7 @@ class LivePipelineConfig:
     tshark_path: str = "tshark"
     packet_queue_size: int = 10_000
     bpf_filter: str | None = None
+    packet_refresh_threshold: int = 100
     window_size_seconds: float = 10.0
     step_seconds: float = 5.0
     flow_timeout_seconds: float = 10.0
@@ -36,6 +43,13 @@ class LivePipelineConfig:
     max_workers: int = 2
     inference_queue_size: int = 100
     status_broadcast_interval: float = 1.0
+
+    # Firewall defense configuration
+    firewall_mode: str = FirewallMode.MONITOR_ONLY.value
+    firewall_admin_authorized: bool = False
+    firewall_trusted_allowlist: list[str] = field(default_factory=list)
+    firewall_min_confidence: float = 0.80
+    firewall_rule_expiration: float = 300.0
 
 
 class LivePipelineCoordinator:
@@ -48,6 +62,16 @@ class LivePipelineCoordinator:
     ) -> None:
         self.config = config or LivePipelineConfig()
         self.event_bus = event_bus or EventBus()
+
+        # 0. Firewall response manager
+        fw_cfg = FirewallConfig(
+            mode=self.config.firewall_mode,
+            admin_authorized=self.config.firewall_admin_authorized,
+            trusted_allowlist=self.config.firewall_trusted_allowlist,
+            min_confidence_to_block=self.config.firewall_min_confidence,
+            rule_expiration_seconds=self.config.firewall_rule_expiration,
+        )
+        self.firewall_manager = FirewallManager(fw_cfg)
 
         # 1. Packet capture
         capture_cfg = CaptureConfig(
@@ -64,18 +88,20 @@ class LivePipelineCoordinator:
             idle_timeout_seconds=self.config.idle_timeout_seconds,
         )
 
-        # 3. Window manager
+        # 3. Window manager with packet count refresh threshold
         self.window_manager = WindowManager(
             flow_manager=self.flow_manager,
             window_size_seconds=self.config.window_size_seconds,
             step_seconds=self.config.step_seconds,
             queue_size=self.config.inference_queue_size,
+            packet_refresh_threshold=self.config.packet_refresh_threshold,
         )
 
-        # 4. Inference engine
+        # 4. Inference engine with firewall integration
         self.inference_engine = LiveInferenceEngine(
             window_queue=self.window_manager.window_queue,
             max_workers=self.config.max_workers,
+            firewall_manager=self.firewall_manager,
             result_callback=self._on_detection_result,
         )
 
@@ -94,6 +120,7 @@ class LivePipelineCoordinator:
         cap_metrics = self.capture.get_metrics()
         win_metrics = self.window_manager.metrics.to_dict()
         inf_metrics = self.inference_engine.metrics.to_dict()
+        fw_status = self.firewall_manager.get_status()
 
         return {
             "running": self.is_running,
@@ -101,15 +128,20 @@ class LivePipelineCoordinator:
             "packets_captured": cap_metrics["packets_captured"],
             "packets_processed": cap_metrics["packets_processed"],
             "packets_dropped": cap_metrics["packets_dropped"],
+            "packet_refresh_threshold": self.config.packet_refresh_threshold,
+            "packets_until_next_refresh": self.window_manager.packets_until_next_refresh,
             "active_flows": self.flow_manager.active_flow_count,
             "windows_processed": inf_metrics["total_windows_processed"],
             "attack_count": inf_metrics["total_attacks_detected"],
             "job_queue_size": self.window_manager.window_queue.qsize(),
             "windows_dropped": win_metrics["windows_dropped"],
+            "windows_triggered_by_packet_count": win_metrics.get("windows_triggered_by_packet_count", 0),
+            "windows_triggered_by_timer": win_metrics.get("windows_triggered_by_timer", 0),
             "inference_jobs_failed": inf_metrics["inference_jobs_failed"],
             "uptime_seconds": cap_metrics["uptime_seconds"],
             "tshark_pid": cap_metrics["tshark_pid"],
             "websocket_subscribers": self.event_bus.subscriber_count,
+            "firewall": fw_status,
             "metrics": {
                 "avg_inference_latency_ms": inf_metrics["avg_inference_latency_ms"],
                 "avg_feature_extraction_latency_ms": inf_metrics["avg_feature_extraction_latency_ms"],

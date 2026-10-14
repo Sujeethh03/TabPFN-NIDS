@@ -43,6 +43,7 @@ class LiveFlowManager:
 
         # Track keys updated since last window harvest
         self._updated_in_window: set[tuple[str, int, str, int, int]] = set()
+        self._flow_last_packet_count: dict[str, int] = {}
         self._total_packets_ingested = 0
         self._last_packet_timestamp: float | None = None
 
@@ -101,25 +102,39 @@ class LiveFlowManager:
         """
         # 1. Collect flows completed during this interval
         completed_flows = self._builder.get_completed()
+        for c_flow in completed_flows:
+            self._flow_last_packet_count.pop(c_flow.flow_id, None)
 
-        # 2. Snapshot active flows
+        # 2. Snapshot active flows with new packets since last snapshot
         active_snapshots: list[FlowRecord] = []
         for key, (flow, _, _) in self._builder._active.items():
             if only_updated and key not in self._updated_in_window:
                 continue
 
+            current_pkts = flow.fwd_packets + flow.bwd_packets
+            last_pkts = self._flow_last_packet_count.get(flow.flow_id, 0)
+            if current_pkts <= last_pkts:
+                # No new packet data since last snapshot; avoid redundant processing
+                continue
+
             snap = copy.deepcopy(flow)
             snap.duration = max(0.0, snap.end_time - snap.start_time)
-            snap.total_packets = snap.fwd_packets + snap.bwd_packets
-            snap.total_bytes = snap.fwd_bytes + snap.bwd_bytes
+            snap.total_packets = current_pkts
+            snap.total_bytes = flow.fwd_bytes + flow.bwd_bytes
             active_snapshots.append(snap)
+            self._flow_last_packet_count[flow.flow_id] = current_pkts
 
         # Reset updated tracker for next window
         self._updated_in_window.clear()
 
         return completed_flows + active_snapshots
 
+    def get_last_packet_count(self, flow_id: str) -> int:
+        """Return the packet count recorded at the most recent snapshot for a flow."""
+        return self._flow_last_packet_count.get(flow_id, 0)
+
     def flush_all(self) -> list[FlowRecord]:
         """Force finalize all active flows (e.g. on shutdown)."""
         self._updated_in_window.clear()
+        self._flow_last_packet_count.clear()
         return self._builder.flush_all()
