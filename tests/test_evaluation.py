@@ -275,3 +275,77 @@ def test_metrics_comparison_rejects_empty(tmp_path: Path) -> None:
     """An empty comparison is a caller error."""
     with pytest.raises(ValueError, match="at least one run"):
         plot_metrics_comparison({}, output_path=tmp_path / "empty.png")
+
+
+def test_metrics_radar_chart(tmp_path: Path) -> None:
+    """The radar / spider chart renders with model and baseline metrics."""
+    from tabpfn_nids.evaluation.plots import plot_metrics_radar
+
+    metrics = {
+        "accuracy": 0.788,
+        "precision": 0.984,
+        "recall": 0.639,
+        "f1_score": 0.775,
+        "roc_auc": 0.969,
+    }
+    baseline = {
+        "accuracy": 0.762,
+        "precision": 0.940,
+        "recall": 0.622,
+        "f1_score": 0.748,
+        "roc_auc": 0.957,
+    }
+    path = plot_metrics_radar(
+        metrics,
+        output_path=tmp_path / "radar.png",
+        baseline_benchmark=baseline,
+    )
+    assert path.exists() and path.stat().st_size > 1000
+
+
+def test_comprehensive_metrics_dashboard(tmp_path: Path) -> None:
+    """The multi-panel metrics dashboard renders with bar, radar and confusion matrix."""
+    from tabpfn_nids.evaluation.plots import plot_comprehensive_metrics_dashboard
+
+    metrics = {
+        "accuracy": 0.788,
+        "precision": 0.984,
+        "recall": 0.639,
+        "f1_score": 0.775,
+        "roc_auc": 0.969,
+    }
+    confusion = [[500, 10], [150, 340]]
+    baseline = {
+        "accuracy": 0.762,
+        "precision": 0.940,
+        "recall": 0.622,
+        "f1_score": 0.748,
+        "roc_auc": 0.957,
+    }
+    path = plot_comprehensive_metrics_dashboard(
+        metrics,
+        output_path=tmp_path / "dashboard.png",
+        confusion=confusion,
+        comparison_baseline=baseline,
+    )
+    assert path.exists() and path.stat().st_size > 1000
+
+
+def test_prediction_distribution_donut(tmp_path: Path) -> None:
+    """The prediction distribution donut chart renders counts and percentages."""
+    from tabpfn_nids.evaluation.plots import plot_prediction_distribution_donut
+
+    counts = {"normal": 9694, "attack": 12850}
+    path = plot_prediction_distribution_donut(
+        counts,
+        output_path=tmp_path / "donut.png",
+    )
+    assert path.exists() and path.stat().st_size > 1000
+
+    # Also test tuple / array form
+    path2 = plot_prediction_distribution_donut(
+        (500, 300),
+        output_path=tmp_path / "donut2.png",
+    )
+    assert path2.exists() and path2.stat().st_size > 1000
+

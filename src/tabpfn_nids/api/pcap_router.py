@@ -290,6 +290,11 @@ def _run_analysis(job_id: str) -> None:
             extraction_seconds,
         )
         flows = pd.read_parquet(flows_path)
+        if flows.empty or len(flows) == 0:
+            raise ValueError(
+                f"No IP network flows could be reconstructed from '{pcap_path.name}'. "
+                "The capture may be empty or contain only non-IP frames (e.g. ARP, STP, or raw Ethernet)."
+            )
 
         # ------------------------------------------------------------------
         # 3. Build ML features
@@ -784,8 +789,14 @@ async def upload_pcap(file: UploadFile = File(...)):
     if len(content) == 0:
         raise HTTPException(status_code=400, detail={"error": "Uploaded file is empty."})
 
-    # Validate PCAP magic bytes
-    PCAP_MAGIC = {b"\xd4\xc3\xb2\xa1", b"\xa1\xb2\xc3\xd4", b"\x0a\x0d\x0d\x0a"}
+    # Validate PCAP magic bytes (microsecond, nanosecond, and PCAP-NG formats)
+    PCAP_MAGIC = {
+        b"\xd4\xc3\xb2\xa1",  # Standard pcap (little-endian)
+        b"\xa1\xb2\xc3\xd4",  # Standard pcap (big-endian)
+        b"\x4d\x3c\xb2\xa1",  # Nanosecond pcap (little-endian)
+        b"\xa1\xb2\x3c\x4d",  # Nanosecond pcap (big-endian)
+        b"\x0a\x0d\x0d\x0a",  # PCAP-NG
+    }
     if len(content) < 4 or content[:4] not in PCAP_MAGIC:
         raise HTTPException(
             status_code=400,
@@ -836,11 +847,53 @@ async def _run_analysis_async(job_id: str) -> None:
     await asyncio.to_thread(_run_analysis, job_id)
 
 
+def _recover_job_from_disk(job_id: str) -> bool:
+    """Attempt to restore a completed job from disk if the server restarted."""
+    job_dir = UPLOAD_DIR / job_id
+    report_file = job_dir / "analysis_report.json"
+    if not report_file.exists():
+        return False
+    try:
+        with open(report_file, "r", encoding="utf-8") as f:
+            rep_data = json.load(f)
+        pcap_file = next(job_dir.glob("*.pcap*"), None)
+        fname = pcap_file.name if pcap_file else "analysis.pcap"
+        fsize = pcap_file.stat().st_size if pcap_file else 0
+        csv_file = next(job_dir.glob("*_predictions.csv"), None)
+        html_file = next(job_dir.glob("*_analysis_report.html"), None)
+        docx_file = next(job_dir.glob("*_analysis_report.docx"), None)
+
+        jobs[job_id] = {
+            "job_id": job_id,
+            "pcap_filename": fname,
+            "pcap_size": fsize,
+            "status": JobStatus.COMPLETE,
+            "status_label": _STATUS_LABELS[JobStatus.COMPLETE],
+            "progress": 100,
+            "created_at": datetime.now().isoformat(),
+            "started_at": datetime.now().isoformat(),
+            "completed_at": datetime.now().isoformat(),
+            "error": None,
+            "pcap_path": str(pcap_file) if pcap_file else None,
+            "report_path": str(report_file),
+            "html_path": str(html_file) if html_file else None,
+            "docx_path": str(docx_file) if docx_file else None,
+            "csv_path": str(csv_file) if csv_file else None,
+            "report_data": rep_data,
+            "flows_df": None,
+        }
+        return True
+    except Exception as exc:
+        logger.warning("Failed to recover job %s from disk: %s", job_id, exc)
+        return False
+
+
 @router.get("/status/{job_id}", summary="Poll analysis job status")
 async def get_job_status(job_id: str):
     """Return current status and progress percentage for a job."""
     if job_id not in jobs:
-        raise HTTPException(status_code=404, detail="Job not found.")
+        if not _recover_job_from_disk(job_id):
+            raise HTTPException(status_code=404, detail="Job not found.")
     job = jobs[job_id]
     return {
         "job_id": job_id,
@@ -860,7 +913,8 @@ async def get_job_status(job_id: str):
 async def get_report(job_id: str):
     """Return the complete JSON analysis report for a completed job."""
     if job_id not in jobs:
-        raise HTTPException(status_code=404, detail="Job not found.")
+        if not _recover_job_from_disk(job_id):
+            raise HTTPException(status_code=404, detail="Job not found.")
     job = jobs[job_id]
     if job["status"] != JobStatus.COMPLETE:
         raise HTTPException(
@@ -890,7 +944,8 @@ async def download_file(
 ):
     """Download analysis results in CSV, JSON, HTML, or Word DOCX format."""
     if job_id not in jobs:
-        raise HTTPException(status_code=404, detail="Job not found.")
+        if not _recover_job_from_disk(job_id):
+            raise HTTPException(status_code=404, detail="Job not found.")
     job = jobs[job_id]
     if job["status"] != JobStatus.COMPLETE:
         raise HTTPException(status_code=400, detail="Analysis not complete.")
@@ -928,7 +983,7 @@ async def get_flows(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
     search: str = Query(default=""),
-    filter_label: str = Query(default="all", pattern="^(all|normal|attack)$"),
+    filter_label: str = Query(default="all"),
     filter_category: str = Query(default="all"),
     filter_status: str = Query(default="all"),
     sort_by: str = Query(default="flow_id"),
@@ -936,19 +991,34 @@ async def get_flows(
 ):
     """Return a paginated, filterable, sortable slice of flow-level predictions."""
     if job_id not in jobs:
-        raise HTTPException(status_code=404, detail="Job not found.")
+        if not _recover_job_from_disk(job_id):
+            raise HTTPException(status_code=404, detail="Job not found.")
     job = jobs[job_id]
     if job["status"] != JobStatus.COMPLETE:
         raise HTTPException(status_code=400, detail="Analysis not complete.")
 
     df: pd.DataFrame | None = job.get("flows_df")
     if df is None:
-        raise HTTPException(status_code=500, detail="Flow data unavailable.")
+        csv_path = job.get("csv_path")
+        if csv_path and Path(csv_path).exists():
+            try:
+                raw_df = pd.read_csv(csv_path)
+                job["flows_df"] = _prepare_flows_table(raw_df)
+                df = job["flows_df"]
+            except Exception:
+                raise HTTPException(status_code=500, detail="Flow data unavailable.")
+        else:
+            raise HTTPException(status_code=500, detail="Flow data unavailable.")
+
+    # Normalize binary label filter safely
+    normalized_label = (filter_label or "all").lower().strip()
+    if normalized_label not in ("all", "normal", "attack"):
+        normalized_label = "all"
 
     # Filter by binary label
-    if filter_label == "attack":
+    if normalized_label == "attack":
         df = df[df["prediction_label"] == "Attack"]
-    elif filter_label == "normal":
+    elif normalized_label == "normal":
         df = df[df["prediction_label"] == "Normal"]
 
     # Filter by multiclass category
@@ -976,10 +1046,25 @@ async def get_flows(
     end = start + page_size
     page_df = df.iloc[start:end]
 
+    raw_records = page_df.to_dict(orient="records")
+    clean_rows = []
+    for row in raw_records:
+        clean_row = {}
+        for k, v in row.items():
+            if isinstance(v, (float, np.floating)):
+                clean_row[k] = None if (np.isnan(v) or np.isinf(v)) else round(float(v), 4)
+            elif isinstance(v, (int, np.integer)):
+                clean_row[k] = int(v)
+            elif pd.isna(v):
+                clean_row[k] = None
+            else:
+                clean_row[k] = v
+        clean_rows.append(clean_row)
+
     return {
         "total": total,
         "total_pages": total_pages,
         "page": page,
         "page_size": page_size,
-        "rows": page_df.where(page_df.notna(), None).to_dict(orient="records"),
+        "rows": clean_rows,
     }

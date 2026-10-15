@@ -12,8 +12,12 @@ from tabpfn_nids.evaluation.metrics import (
 )
 from tabpfn_nids.evaluation.plots import (
     plot_all,
+    plot_comprehensive_metrics_dashboard,
     plot_confusion_matrix,
+    plot_metrics_comparison,
+    plot_metrics_radar,
     plot_precision_recall_curve,
+    plot_prediction_distribution_donut,
     plot_roc_curve,
 )
 from tabpfn_nids.evaluation.reporter import (
@@ -38,8 +42,12 @@ __all__ = [
     "load_results",
     "minimum_reachable_p",
     "plot_all",
+    "plot_comprehensive_metrics_dashboard",
     "plot_confusion_matrix",
+    "plot_metrics_comparison",
+    "plot_metrics_radar",
     "plot_precision_recall_curve",
+    "plot_prediction_distribution_donut",
     "plot_roc_curve",
     "summarize_paired",
     "wilcoxon_test",
