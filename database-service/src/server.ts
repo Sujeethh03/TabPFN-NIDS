@@ -267,7 +267,7 @@ app.get("/api/analyses/:id/predictions", async (req, res) => {
       take,
     });
 
-    
+
     res.json(
       predictions.map((prediction) => ({
         ...prediction,
@@ -282,7 +282,7 @@ app.get("/api/analyses/:id/predictions", async (req, res) => {
 });
 
 const port = Number(process.env.PORT ?? 3000);
-const host = process.env.HOST ?? "127.0.0.1";
+const host = process.env.HOST ?? "0.0.0.0";
 const server = app.listen(port, host, () => {
   console.log(`TabPFN database API: http://${host}:${port}`);
 });
