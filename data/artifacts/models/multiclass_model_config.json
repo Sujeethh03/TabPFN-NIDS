@@ -1,0 +1,23 @@
+{
+  "task": "multiclass",
+  "max_context_samples": 962,
+  "device": "cpu",
+  "n_estimators": 1,
+  "random_state": 42,
+  "use_chunked_ensemble": false,
+  "predict_batch_size": 200,
+  "n_classes": 9,
+  "feature_names": [],
+  "fit_seconds": 1.9656212329864502,
+  "classes": [
+    "Backdoors",
+    "DoS",
+    "Exploits",
+    "Fuzzers",
+    "Generic",
+    "Normal",
+    "Reconnaissance",
+    "Shellcode",
+    "Worms"
+  ]
+}

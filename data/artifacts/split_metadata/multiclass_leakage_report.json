@@ -1,0 +1,27 @@
+{
+  "flow_id_check": {
+    "checked": true,
+    "train_val_overlap": 0,
+    "train_test_overlap": 0,
+    "val_test_overlap": 0,
+    "clean": true
+  },
+  "feature_check": {
+    "checked": true,
+    "features_checked": 73,
+    "train_val_duplicates": 0,
+    "train_test_duplicates": 0,
+    "val_test_duplicates": 0,
+    "clean": true
+  },
+  "session_check": {
+    "checked": true,
+    "train_sessions": 140,
+    "val_sessions": 140,
+    "test_sessions": 140,
+    "train_val_ip_overlap": 140,
+    "train_test_ip_overlap": 140,
+    "note": "IP-pair overlap is expected in temporal splits (same hosts). Only exact flow duplicates indicate leakage."
+  },
+  "overall_clean": true
+}
