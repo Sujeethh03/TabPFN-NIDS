@@ -1,0 +1,12 @@
+{
+  "task": "binary",
+  "max_context_samples": 2000,
+  "device": "auto",
+  "n_estimators": 2,
+  "random_state": 42,
+  "use_chunked_ensemble": true,
+  "predict_batch_size": 500,
+  "n_classes": 2,
+  "feature_names": [],
+  "fit_seconds": 1.470125675201416
+}

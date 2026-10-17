@@ -1,0 +1,66 @@
+{
+  "classes": [
+    "Backdoors",
+    "DoS",
+    "Exploits",
+    "Fuzzers",
+    "Generic",
+    "Normal",
+    "Reconnaissance",
+    "Shellcode",
+    "Worms"
+  ],
+  "class_to_idx": {
+    "Backdoors": 0,
+    "DoS": 1,
+    "Exploits": 2,
+    "Fuzzers": 3,
+    "Generic": 4,
+    "Normal": 5,
+    "Reconnaissance": 6,
+    "Shellcode": 7,
+    "Worms": 8
+  },
+  "idx_to_class": {
+    "0": "Backdoors",
+    "1": "DoS",
+    "2": "Exploits",
+    "3": "Fuzzers",
+    "4": "Generic",
+    "5": "Normal",
+    "6": "Reconnaissance",
+    "7": "Shellcode",
+    "8": "Worms"
+  },
+  "id_to_label": {
+    "0": "Backdoors",
+    "1": "DoS",
+    "2": "Exploits",
+    "3": "Fuzzers",
+    "4": "Generic",
+    "5": "Normal",
+    "6": "Reconnaissance",
+    "7": "Shellcode",
+    "8": "Worms"
+  },
+  "num_classes": 9,
+  "confidence_threshold": 0.5,
+  "unseen_label": "Uncertain",
+  "supported_classes": [
+    "Backdoors",
+    "DoS",
+    "Exploits",
+    "Fuzzers",
+    "Generic",
+    "Normal",
+    "Reconnaissance",
+    "Shellcode",
+    "Worms"
+  ],
+  "unsupported_classes": [
+    "Analysis"
+  ],
+  "unsupported_class_reasons": {
+    "Analysis": "Analysis attack category had 0 flow instances in the extracted UNSW-NB15 PCAP slice (timestamps 1421927376 to 1421928304); the earliest Analysis attacks in UNSW-NB15 occur at timestamp 1421930602, so it could not be trained."
+  }
+}
